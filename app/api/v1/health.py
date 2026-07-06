@@ -6,8 +6,7 @@ from app.schemas.health import HealthResponse, VersionResponse
 router = APIRouter()
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
+def build_health_response() -> HealthResponse:
     settings = get_settings()
     model_configured = settings.model.provider == "mock" or bool(settings.model.api_key)
     return HealthResponse(
@@ -20,6 +19,11 @@ async def health_check() -> HealthResponse:
             "model": "configured" if model_configured else "not_configured",
         },
     )
+
+
+@router.get("/health", response_model=HealthResponse)
+async def health_check() -> HealthResponse:
+    return build_health_response()
 
 
 @router.get("/version", response_model=VersionResponse)

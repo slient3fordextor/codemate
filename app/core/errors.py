@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -5,7 +7,9 @@ from starlette import status
 
 from app.schemas.errors import ErrorDetail, ErrorResponse
 
+logger = logging.getLogger("codemate.errors")
 
+# 自定义异常类
 class AppError(Exception):
     def __init__(
         self,
@@ -59,6 +63,14 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception(
+            "unhandled request error",
+            extra={
+                "request_id": _request_id(request),
+                "method": request.method,
+                "path": request.url.path,
+            },
+        )
         return _error_response(
             "INTERNAL_ERROR",
             "Internal server error",

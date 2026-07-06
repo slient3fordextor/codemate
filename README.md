@@ -14,6 +14,12 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+Optional local configuration:
+
+```bash
+cp .env.example .env
+```
+
 ## Start
 
 ```bash
@@ -21,6 +27,12 @@ make dev
 ```
 
 The API starts at `http://127.0.0.1:8000` by default.
+
+To use a different bind address or port:
+
+```bash
+make dev HOST=0.0.0.0 PORT=8080
+```
 
 ## Health Check
 
@@ -40,4 +52,10 @@ curl -i http://127.0.0.1:8000/api/v1/health
 
 ```bash
 make test
+```
+
+If your dependencies are installed only in the project virtual environment:
+
+```bash
+make test PYTHON=.venv/bin/python
 ```

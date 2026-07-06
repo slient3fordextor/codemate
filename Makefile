@@ -1,16 +1,20 @@
+HOST ?= 127.0.0.1
+PORT ?= 8000
+PYTHON ?= python
+
 .PHONY: dev test lint format typecheck
 
 dev:
-	uvicorn app.main:app --reload
+	uvicorn app.main:app --reload --host $(HOST) --port $(PORT)
 
 test:
-	pytest
+	$(PYTHON) -m pytest
 
 lint:
-	ruff check .
+	$(PYTHON) -m ruff check .
 
 format:
-	ruff format .
+	$(PYTHON) -m ruff format .
 
 typecheck:
-	mypy app tests
+	$(PYTHON) -m mypy app tests
