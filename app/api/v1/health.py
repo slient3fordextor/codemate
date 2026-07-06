@@ -9,14 +9,15 @@ router = APIRouter()
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     settings = get_settings()
+    model_configured = settings.model.provider == "mock" or bool(settings.model.api_key)
     return HealthResponse(
         status="ok",
-        app=settings.app_name,
-        version=settings.app_version,
+        app=settings.app.name,
+        version=settings.app.version,
         checks={
             "config": "ok",
-            "storage": "disabled",
-            "model": "not_configured" if not settings.model_api_key else "configured",
+            "storage": "enabled" if settings.storage.enabled else "disabled",
+            "model": "configured" if model_configured else "not_configured",
         },
     )
 
@@ -25,7 +26,7 @@ async def health_check() -> HealthResponse:
 async def version() -> VersionResponse:
     settings = get_settings()
     return VersionResponse(
-        name=settings.app_name,
-        version=settings.app_version,
+        name=settings.app.name,
+        version=settings.app.version,
         api_version="v1",
     )

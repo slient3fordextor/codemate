@@ -6,6 +6,8 @@ from uuid import uuid4
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from app.core.config import get_settings
+
 logger = logging.getLogger("codemate.access")
 
 
@@ -28,6 +30,10 @@ async def access_log_middleware(
 ) -> Response:
     started_at = time.perf_counter()
     response = await call_next(request)
+    settings = get_settings()
+    if not settings.logging.access_log_enabled:
+        return response
+
     latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
     logger.info(
         "request completed",
