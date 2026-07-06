@@ -1,0 +1,48 @@
+from fastapi.testclient import TestClient
+
+from app.main import create_app
+
+
+def test_chat_completion_streams_mock_response() -> None:
+    client = TestClient(create_app())
+
+    with client.stream(
+        "POST",
+        "/api/v1/chat/completions",
+        json={"message": "解释当前架构", "stream": True},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: message.start" in body
+    assert "event: message.delta" in body
+    assert '"content": "Mock "' in body
+    assert '"content": "response: "' in body
+    assert "event: message.done" in body
+
+
+def test_chat_completion_accepts_message_protocol_context() -> None:
+    client = TestClient(create_app())
+
+    with client.stream(
+        "POST",
+        "/api/v1/chat/completions",
+        json={
+            "messages": [{"role": "user", "content": "总结"}],
+            "current_file": "app/main.py",
+            "selected_text": "create_app()",
+        },
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: usage.update" in body
+
+
+def test_chat_completion_requires_message_or_messages() -> None:
+    client = TestClient(create_app())
+
+    response = client.post("/api/v1/chat/completions", json={"stream": True})
+
+    assert response.status_code == 422

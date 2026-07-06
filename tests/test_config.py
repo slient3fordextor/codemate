@@ -28,6 +28,51 @@ def test_openai_compatible_provider_requires_base_url() -> None:
         _ = settings.model
 
 
+def test_openai_compatible_provider_accepts_openai_or_deepseek_base_url() -> None:
+    settings = Settings(
+        model_provider="openai_compatible",
+        model_base_url="https://api.deepseek.com",
+        model_name="deepseek-chat",
+        model_api_key="test-key",
+    )
+
+    assert settings.model.provider == "openai_compatible"
+    assert settings.model.base_url == "https://api.deepseek.com"
+    assert settings.model.name == "deepseek-chat"
+
+
+def test_anthropic_provider_can_use_default_base_url() -> None:
+    settings = Settings(
+        model_provider="anthropic",
+        model_name="claude-3-5-sonnet-latest",
+        model_api_key="test-key",
+    )
+
+    assert settings.model.provider == "anthropic"
+    assert settings.model.base_url is None
+    assert settings.model.name == "claude-3-5-sonnet-latest"
+
+
+def test_domestic_openai_compatible_provider_requires_base_url() -> None:
+    settings = Settings(model_provider="qwen")
+
+    with pytest.raises(ValidationError):
+        _ = settings.model
+
+
+def test_domestic_openai_compatible_provider_accepts_base_url() -> None:
+    settings = Settings(
+        model_provider="qwen",
+        model_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model_name="qwen-plus",
+        model_api_key="test-key",
+    )
+
+    assert settings.model.provider == "qwen"
+    assert settings.model.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    assert settings.model.name == "qwen-plus"
+
+
 def test_storage_config_is_disabled_by_default() -> None:
     settings = Settings()
 

@@ -36,8 +36,22 @@ class StorageConfig(BaseModel):
     enabled: bool = False
 
 
+ModelProviderName = Literal[
+    "mock",
+    "openai_compatible",
+    "anthropic",
+    "claude",
+    "ollama",
+    "deepseek",
+    "qwen",
+    "zhipu",
+    "moonshot",
+    "baichuan",
+]
+
+
 class ModelProviderConfig(BaseModel):
-    provider: Literal["mock", "openai_compatible", "ollama"] = "mock"
+    provider: ModelProviderName = "mock"
     base_url: str | None = None
     name: str = "mock-model"
     api_key: str | None = None
@@ -46,8 +60,17 @@ class ModelProviderConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_provider_requirements(self) -> "ModelProviderConfig":
-        if self.provider == "openai_compatible" and not self.base_url:
-            msg = "model_base_url is required when model_provider is openai_compatible"
+        base_url_required_providers = {
+            "openai_compatible",
+            "ollama",
+            "deepseek",
+            "qwen",
+            "zhipu",
+            "moonshot",
+            "baichuan",
+        }
+        if self.provider in base_url_required_providers and not self.base_url:
+            msg = f"model_base_url is required when model_provider is {self.provider}"
             raise ValueError(msg)
         return self
 
@@ -90,7 +113,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./codemate.db"
     storage_enabled: bool = False
 
-    model_provider: Literal["mock", "openai_compatible", "ollama"] = "mock"
+    model_provider: ModelProviderName = "mock"
     model_base_url: str | None = None
     model_name: str = "mock-model"
     model_api_key: str | None = None
