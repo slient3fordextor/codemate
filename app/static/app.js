@@ -202,8 +202,13 @@ function looksLikeShellCommand(command) {
 }
 
 function createCommandCard(command) {
-  const card = document.createElement("div");
+  const card = document.createElement("details");
   card.className = "command-card";
+  card.open = true;
+
+  const summary = document.createElement("summary");
+  summary.className = "command-summary";
+  summary.textContent = "可执行命令";
 
   const pre = document.createElement("pre");
   pre.textContent = command;
@@ -231,7 +236,7 @@ function createCommandCard(command) {
   });
 
   actions.append(copy, explain);
-  card.append(pre, actions);
+  card.append(summary, pre, actions);
   return card;
 }
 
