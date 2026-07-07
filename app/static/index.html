@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CodeMate CLI Chat</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>CodeMate</h1>
+          <p>CLI 开发对话</p>
+        </div>
+        <div class="status" id="connectionStatus">就绪</div>
+      </header>
+
+      <section class="context-panel" aria-label="上下文">
+        <label>
+          当前文件
+          <input id="currentFile" type="text" placeholder="例如 app/main.py" autocomplete="off" />
+        </label>
+        <label>
+          选中文本
+          <textarea id="selectedText" rows="2" placeholder="可粘贴当前选中的代码片段"></textarea>
+        </label>
+      </section>
+
+      <section class="messages" id="messages" aria-live="polite">
+        <article class="message assistant">
+          <div class="avatar">AI</div>
+          <div class="bubble">
+            <p>把你要完成的 CLI 开发任务、终端报错或测试输出发给我。我会优先给出可复制命令、原因和下一步验证方式。</p>
+          </div>
+        </article>
+      </section>
+
+      <form class="composer" id="chatForm">
+        <textarea
+          id="messageInput"
+          rows="4"
+          placeholder="描述任务，或粘贴 pytest / uvicorn / npm / git 报错..."
+          required
+        ></textarea>
+        <div class="composer-actions">
+          <button type="button" class="secondary" id="newSessionButton">新会话</button>
+          <button type="submit" id="sendButton">发送</button>
+        </div>
+      </form>
+    </main>
+
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>

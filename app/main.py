@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.health import build_health_response
 from app.api.v1.router import api_router
@@ -11,6 +15,10 @@ from app.services.session_memory import InMemorySessionMemoryStore
 
 async def root_health_check() -> object:
     return build_health_response()
+
+
+def web_index() -> FileResponse:
+    return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
 def create_app() -> FastAPI:
@@ -28,8 +36,10 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
     app.middleware("http")(access_log_middleware)
     register_exception_handlers(app)
-    app.add_api_route("/health", root_health_check, methods=["GET"], tags=["health"])
     app.include_router(api_router, prefix="/api/v1")
+    app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+    app.add_api_route("/", web_index, methods=["GET"], tags=["web"])
+    app.add_api_route("/health", root_health_check, methods=["GET"], tags=["health"])
 
     return app
 

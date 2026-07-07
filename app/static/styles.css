@@ -1,0 +1,289 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --panel-soft: #eef2f6;
+  --text: #1d2430;
+  --muted: #667085;
+  --line: #d8dee8;
+  --accent: #0f766e;
+  --accent-dark: #0b5f59;
+  --danger: #b42318;
+  --code-bg: #151922;
+  --code-text: #f4f7fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.shell {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  width: min(1120px, 100%);
+  height: 100vh;
+  margin: 0 auto;
+  padding: 20px;
+  gap: 12px;
+}
+
+.topbar,
+.context-panel,
+.composer {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.topbar p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.status {
+  min-width: 92px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
+.status.busy {
+  background: #e7f8f5;
+  color: var(--accent-dark);
+}
+
+.status.error {
+  background: #fff0ed;
+  color: var(--danger);
+}
+
+.context-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) 1fr;
+  gap: 12px;
+  padding: 12px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  padding: 10px 11px;
+  outline: none;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(15 118 110 / 12%);
+}
+
+textarea {
+  resize: vertical;
+}
+
+.messages {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 8px 2px;
+}
+
+.message {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.message.user {
+  grid-template-columns: minmax(0, 1fr) 38px;
+}
+
+.message.user .avatar {
+  grid-column: 2;
+  background: #334155;
+}
+
+.message.user .bubble {
+  grid-column: 1;
+  grid-row: 1;
+  background: #e9eef5;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bubble {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 12px 14px;
+  line-height: 1.58;
+  white-space: pre-wrap;
+}
+
+.bubble p {
+  margin: 0;
+}
+
+.command-card {
+  margin: 10px 0;
+  overflow: hidden;
+  border: 1px solid #263244;
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.command-card pre {
+  margin: 0;
+  padding: 13px;
+  overflow-x: auto;
+  color: var(--code-text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.command-actions {
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid #263244;
+  padding: 8px;
+  background: #1d2430;
+}
+
+.command-actions button {
+  min-height: 30px;
+  border: 1px solid #3b4658;
+  border-radius: 6px;
+  background: #293244;
+  color: #f4f7fb;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.composer {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.composer textarea {
+  min-height: 96px;
+  max-height: 260px;
+}
+
+.composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+button:hover {
+  background: var(--accent-dark);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+button.secondary {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+}
+
+button.secondary:hover {
+  background: var(--panel-soft);
+}
+
+@media (max-width: 720px) {
+  .shell {
+    height: 100dvh;
+    padding: 10px;
+  }
+
+  .context-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .composer-actions {
+    justify-content: stretch;
+  }
+
+  .composer-actions button {
+    flex: 1;
+  }
+}

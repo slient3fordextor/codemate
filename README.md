@@ -28,6 +28,12 @@ make dev
 
 The API starts at `http://127.0.0.1:8000` by default.
 
+The CLI chat page is available at:
+
+```bash
+http://127.0.0.1:8000/
+```
+
 To use a different bind address or port:
 
 ```bash
