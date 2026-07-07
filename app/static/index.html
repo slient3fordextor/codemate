@@ -4,17 +4,42 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CodeMate CLI Chat</title>
+    <meta
+      name="description"
+      content="CodeMate 本地 CLI 开发对话界面，用于分析任务、命令输出和终端报错。"
+    />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <main class="shell">
+    <a class="skip-link" href="#messageInput">跳到输入框</a>
+    <main class="shell" aria-label="CodeMate CLI Chat">
       <header class="topbar">
-        <div>
-          <h1>CodeMate</h1>
-          <p>CLI 开发对话</p>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">CM</span>
+          <div>
+            <h1>CodeMate</h1>
+            <p>本地 CLI 开发对话</p>
+          </div>
+        </div>
+        <div class="session-meta" aria-label="会话状态">
+          <span>FastAPI</span>
+          <span>SSE stream</span>
         </div>
         <div class="status" id="connectionStatus">就绪</div>
       </header>
+
+      <section class="brief-panel" aria-label="当前工作台">
+        <div>
+          <p class="eyebrow">workspace</p>
+          <h1>CodeMate</h1>
+          <p>粘贴任务、报错或命令输出，获得可执行的下一步。</p>
+        </div>
+        <div class="brief-stats" aria-label="能力">
+          <span>命令提取</span>
+          <span>上下文注入</span>
+          <span>会话记忆</span>
+        </div>
+      </section>
 
       <section class="context-panel" aria-label="上下文">
         <label>
@@ -27,7 +52,7 @@
         </label>
       </section>
 
-      <section class="messages" id="messages" aria-live="polite">
+      <section class="messages" id="messages" aria-live="polite" aria-label="消息">
         <article class="message assistant">
           <div class="avatar">AI</div>
           <div class="bubble">
@@ -36,7 +61,8 @@
         </article>
       </section>
 
-      <form class="composer" id="chatForm">
+      <form class="composer" id="chatForm" aria-label="发送消息">
+        <label class="message-label" for="messageInput">消息</label>
         <textarea
           id="messageInput"
           rows="4"
@@ -44,6 +70,7 @@
           required
         ></textarea>
         <div class="composer-actions">
+          <p class="send-hint">Ctrl/⌘ + Enter 发送</p>
           <button type="button" class="secondary" id="newSessionButton">新会话</button>
           <button type="submit" id="sendButton">发送</button>
         </div>
