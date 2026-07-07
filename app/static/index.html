@@ -28,6 +28,89 @@
         <div class="status" id="connectionStatus">就绪</div>
       </header>
 
+      <dialog class="model-panel" id="modelPanel" aria-label="模型配置">
+        <div class="model-modal">
+          <div class="model-sidebar">
+            <div>
+              <p class="eyebrow">models</p>
+              <h2>模型列表</h2>
+            </div>
+            <input
+              class="model-search"
+              id="modelSearchInput"
+              type="search"
+              placeholder="搜索模型或供应商"
+              autocomplete="off"
+            />
+            <div class="model-list" id="modelPresetList" aria-label="模型列表"></div>
+          </div>
+          <form class="model-form" id="modelConfigForm">
+            <div class="model-form-head">
+              <div>
+                <p class="eyebrow">config</p>
+                <h2>连接参数</h2>
+              </div>
+              <button type="button" class="secondary model-close" id="modelCloseButton">关闭</button>
+            </div>
+            <label>
+              Provider
+              <select id="modelProvider">
+                <option value="mock">mock</option>
+                <option value="openai_compatible">openai_compatible</option>
+                <option value="anthropic">anthropic</option>
+                <option value="claude">claude</option>
+                <option value="ollama">ollama</option>
+                <option value="deepseek">deepseek</option>
+                <option value="qwen">qwen</option>
+                <option value="zhipu">zhipu</option>
+                <option value="moonshot">moonshot</option>
+                <option value="baichuan">baichuan</option>
+              </select>
+            </label>
+            <label>
+              Base URL
+              <input id="modelBaseUrl" type="url" placeholder="https://api.example.com/v1" />
+            </label>
+            <label>
+              Model
+              <input id="modelName" type="text" value="mock-model" placeholder="deepseek-chat" required />
+            </label>
+            <label>
+              API Key
+              <input id="modelApiKey" type="password" placeholder="留空则保留后端已有密钥" />
+            </label>
+            <label class="model-note-field">
+              Note
+              <textarea id="modelNote" rows="3" placeholder="给这个模型写一个备注，例如：日常代码审查 / 本地测试 / 低成本问答"></textarea>
+            </label>
+            <label>
+              Temperature
+              <input id="modelTemperature" type="number" min="0" max="2" step="0.1" placeholder="可选" />
+            </label>
+            <label>
+              Max Tokens
+              <input id="modelMaxTokens" type="number" min="1" step="1" placeholder="可选" />
+            </label>
+            <label>
+              Timeout
+              <input id="modelTimeout" type="number" min="1" step="1" value="60" />
+            </label>
+            <label>
+              Retries
+              <input id="modelRetries" type="number" min="0" step="1" value="2" />
+            </label>
+            <div class="model-actions">
+              <label class="inline-check">
+                <input id="clearApiKey" type="checkbox" />
+                清空 API Key
+              </label>
+              <span class="model-key-state" id="modelKeyState">未读取</span>
+              <button type="submit">保存模型</button>
+            </div>
+          </form>
+        </div>
+      </dialog>
+
       <section class="brief-panel" aria-label="当前工作台">
         <div class="brief-copy">
           <p class="eyebrow">workspace</p>
@@ -69,13 +152,26 @@
           required
         ></textarea>
         <div class="composer-actions">
-          <p class="send-hint">Ctrl/⌘ + Enter 发送</p>
-          <button type="button" class="secondary" id="newSessionButton">新会话</button>
-          <button type="submit" id="sendButton">发送</button>
+          <select
+            class="composer-mode"
+            id="operationModeSelect"
+            aria-label="选择操作模式"
+            title="确认：手动确认每个操作；只读：仅使用只读工具；规划：生成计划供审批；代理：自动接受文件创建编辑；自动：完全自动化"
+          >
+            <option value="confirm">确认</option>
+            <option value="readonly">只读</option>
+            <option value="plan">规划</option>
+            <option value="agent">代理</option>
+            <option value="auto">自动</option>
+          </select>
+          <select class="composer-model" id="composerModelSelect" aria-label="选择模型"></select>
+          <p class="send-hint">Ctrl/⌘ + Enter</p>
+          <button type="button" class="secondary icon-button" id="newSessionButton" aria-label="新会话">+</button>
+          <button type="submit" class="icon-button" id="sendButton" aria-label="发送">➤</button>
         </div>
       </form>
     </main>
 
-    <script src="/static/app.js" type="module"></script>
+    <script src="/static/app.js?v=20260707-restore-main-selects" type="module"></script>
   </body>
 </html>

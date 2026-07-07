@@ -75,6 +75,15 @@ class ChatService:
                 context_parts.append(f"Selected text:\n{request.selected_text}")
             messages.append(ChatMessage(role="system", content="\n\n".join(context_parts)))
 
+        operation_mode = request.metadata.get("operation_mode")
+        if isinstance(operation_mode, str) and operation_mode:
+            messages.append(
+                ChatMessage(
+                    role="system",
+                    content=f"Operation mode: {operation_mode}",
+                )
+            )
+
         if request.message:
             messages.append(ChatMessage(role="user", content=request.message))
 

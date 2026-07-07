@@ -61,6 +61,7 @@ class ModelProviderConfig(BaseModel):
     base_url: str | None = None
     name: str = "mock-model"
     api_key: str | None = None
+    note: str | None = None
     timeout_seconds: float = 60.0
     max_retries: int = 2
 
@@ -127,6 +128,7 @@ class Settings(BaseSettings):
     model_base_url: str | None = None
     model_name: str = "mock-model"
     model_api_key: str | None = None
+    model_note: str | None = None
     model_timeout_seconds: float = 60.0
     model_max_retries: int = 2
 
@@ -173,6 +175,7 @@ class Settings(BaseSettings):
             base_url=self.model_base_url,
             name=self.model_name,
             api_key=self.model_api_key,
+            note=self.model_note,
             timeout_seconds=self.model_timeout_seconds,
             max_retries=self.model_max_retries,
         )

@@ -6,9 +6,122 @@ const newSessionButton = document.querySelector("#newSessionButton");
 const statusEl = document.querySelector("#connectionStatus");
 const currentFileInput = document.querySelector("#currentFile");
 const selectedTextInput = document.querySelector("#selectedText");
+const modelPanel = document.querySelector("#modelPanel");
+const modelConfigForm = document.querySelector("#modelConfigForm");
+const modelCloseButton = document.querySelector("#modelCloseButton");
+const modelSearchInput = document.querySelector("#modelSearchInput");
+const modelPresetList = document.querySelector("#modelPresetList");
+const modelProviderInput = document.querySelector("#modelProvider");
+const modelBaseUrlInput = document.querySelector("#modelBaseUrl");
+const modelNameInput = document.querySelector("#modelName");
+const modelApiKeyInput = document.querySelector("#modelApiKey");
+const modelNoteInput = document.querySelector("#modelNote");
+const modelTemperatureInput = document.querySelector("#modelTemperature");
+const modelMaxTokensInput = document.querySelector("#modelMaxTokens");
+const modelTimeoutInput = document.querySelector("#modelTimeout");
+const modelRetriesInput = document.querySelector("#modelRetries");
+const clearApiKeyInput = document.querySelector("#clearApiKey");
+const modelKeyState = document.querySelector("#modelKeyState");
+const operationModeSelect = document.querySelector("#operationModeSelect");
+const composerModelSelect = document.querySelector("#composerModelSelect");
 
 let sessionId = localStorage.getItem("codemate.sessionId") || "";
+let operationMode = localStorage.getItem("codemate.operationMode") || "confirm";
 let activeController = null;
+let modelConfigLoaded = false;
+
+const modelPresets = [
+  {
+    label: "Mock",
+    provider: "mock",
+    baseUrl: "",
+    model: "mock-model",
+    note: "本地占位响应",
+  },
+  {
+    label: "DeepSeek Chat",
+    provider: "deepseek",
+    baseUrl: "https://api.deepseek.com",
+    model: "deepseek-chat",
+    note: "OpenAI 兼容",
+  },
+  {
+    label: "Qwen Plus",
+    provider: "qwen",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "qwen-plus",
+    note: "DashScope",
+  },
+  {
+    label: "Moonshot Kimi",
+    provider: "moonshot",
+    baseUrl: "https://api.moonshot.cn/v1",
+    model: "moonshot-v1-8k",
+    note: "OpenAI 兼容",
+  },
+  {
+    label: "Anthropic Claude",
+    provider: "anthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    model: "claude-3-5-sonnet-latest",
+    note: "Messages API",
+  },
+  {
+    label: "Ollama Local",
+    provider: "ollama",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    model: "llama3.1",
+    note: "本地模型",
+  },
+  {
+    label: "OpenAI Compatible",
+    provider: "openai_compatible",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4.1-mini",
+    note: "自定义兼容端点",
+  },
+];
+
+const providerMarks = {
+  anthropic: "◆",
+  baichuan: "百",
+  claude: "◆",
+  deepseek: "🐳",
+  mock: "◎",
+  moonshot: "月",
+  ollama: "⌂",
+  openai_compatible: "◌",
+  qwen: "通",
+  zhipu: "智",
+};
+
+const operationModes = [
+  {
+    value: "confirm",
+    label: "确认",
+    description: "手动确认每个操作的默认模式",
+  },
+  {
+    value: "readonly",
+    label: "只读",
+    description: "仅使用只读工具，不创建或编辑文件",
+  },
+  {
+    value: "plan",
+    label: "规划",
+    description: "生成计划，等待用户审批后执行",
+  },
+  {
+    value: "agent",
+    label: "代理",
+    description: "自动接受文件创建和编辑",
+  },
+  {
+    value: "auto",
+    label: "自动",
+    description: "完全自动化执行",
+  },
+];
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -32,9 +145,59 @@ newSessionButton.addEventListener("click", () => {
   );
 });
 
+modelCloseButton.addEventListener("click", () => {
+  closeModelPanel();
+});
+
+modelPanel.addEventListener("close", () => {
+  document.body.classList.remove("modal-open");
+  syncComposerModel({
+    provider: modelProviderInput.value,
+    name: modelNameInput.value,
+  });
+});
+
+modelPanel.addEventListener("click", (event) => {
+  if (event.target === modelPanel) {
+    closeModelPanel();
+  }
+});
+
+modelConfigForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await saveModelConfig();
+});
+
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
     form.requestSubmit();
+  }
+});
+
+renderModelPresets();
+renderComposerModels();
+operationModeSelect.value = operationMode;
+
+modelSearchInput.addEventListener("input", () => {
+  renderModelPresets(modelSearchInput.value);
+});
+
+operationModeSelect.addEventListener("change", () => {
+  operationMode = operationModeSelect.value;
+  localStorage.setItem("codemate.operationMode", operationMode);
+});
+
+composerModelSelect.addEventListener("change", () => {
+  if (composerModelSelect.value === "__add__") {
+    openModelPanel();
+    if (!modelConfigLoaded) {
+      void loadModelConfig();
+    }
+    return;
+  }
+  const preset = modelPresets.find((item) => modelKey(item) === composerModelSelect.value);
+  if (preset) {
+    applyModelPreset(preset);
   }
 });
 
@@ -49,7 +212,21 @@ async function sendMessage(message) {
     current_file: currentFileInput.value.trim() || null,
     selected_text: selectedTextInput.value.trim() || null,
     stream: true,
+    metadata: {
+      operation_mode: operationMode,
+    },
   };
+  const temperature = parseOptionalNumber(modelTemperatureInput.value);
+  const maxTokens = parseOptionalInteger(modelMaxTokensInput.value);
+  if (modelNameInput.value.trim()) {
+    payload.model = modelNameInput.value.trim();
+  }
+  if (temperature !== null) {
+    payload.temperature = temperature;
+  }
+  if (maxTokens !== null) {
+    payload.max_tokens = maxTokens;
+  }
 
   try {
     const response = await fetch("/api/v1/chat/completions", {
@@ -158,6 +335,228 @@ function appendMessage(role, content) {
   scrollToBottom();
 
   return { article, bubble, content };
+}
+
+async function loadModelConfig() {
+  setStatus("读取模型", "busy");
+  try {
+    const response = await fetch("/api/v1/model-config");
+    if (!response.ok) {
+      throw new Error(`读取模型配置失败：HTTP ${response.status}`);
+    }
+    const config = await response.json();
+    const provider = config.provider || "mock";
+    modelProviderInput.value = provider;
+    modelBaseUrlInput.value = config.base_url || "";
+    modelNameInput.value = config.name || "mock-model";
+    modelApiKeyInput.value = "";
+    modelNoteInput.value = config.note || "";
+    modelTimeoutInput.value = String(config.timeout_seconds || 60);
+    modelRetriesInput.value = String(config.max_retries ?? 2);
+    clearApiKeyInput.checked = false;
+    modelKeyState.textContent =
+      provider === "mock"
+        ? "当前使用 mock 默认配置"
+        : config.api_key_set
+          ? "后端已保存 API Key"
+          : "未保存 API Key";
+    modelConfigLoaded = true;
+    highlightActivePreset();
+    syncComposerModel(config);
+    setStatus("就绪");
+  } catch (error) {
+    setStatus("出错", "error");
+    modelKeyState.textContent = error instanceof Error ? error.message : "读取失败";
+  }
+}
+
+function openModelPanel() {
+  if (!modelPanel.open) {
+    modelPanel.showModal();
+  }
+  document.body.classList.add("modal-open");
+}
+
+function closeModelPanel() {
+  if (modelPanel.open) {
+    modelPanel.close();
+  }
+}
+
+function renderModelPresets(query = "") {
+  modelPresetList.replaceChildren();
+  const normalizedQuery = query.trim().toLowerCase();
+  const groups = groupModelPresets(
+    modelPresets.filter((preset) => {
+      const text = `${preset.label} ${preset.provider} ${preset.model} ${preset.note}`.toLowerCase();
+      return !normalizedQuery || text.includes(normalizedQuery);
+    })
+  );
+
+  if (groups.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "model-empty";
+    empty.textContent = "没有匹配的模型";
+    modelPresetList.append(empty);
+    return;
+  }
+
+  for (const group of groups) {
+    const heading = document.createElement("div");
+    heading.className = "model-group";
+    heading.textContent = group.label;
+    modelPresetList.append(heading);
+
+    for (const preset of group.items) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "model-preset";
+      button.dataset.provider = preset.provider;
+      button.dataset.model = preset.model;
+      button.innerHTML = `
+        <b class="model-mark">${providerMark(preset.provider)}</b>
+        <span class="model-main">
+          <strong>${preset.label}</strong>
+          <small>${preset.model}</small>
+        </span>
+        <span class="model-meta">${preset.note}</span>
+      `;
+      button.addEventListener("click", () => {
+        applyModelPreset(preset);
+      });
+      modelPresetList.append(button);
+    }
+  }
+  highlightActivePreset();
+}
+
+function groupModelPresets(presets) {
+  const order = ["mock", "deepseek", "qwen", "moonshot", "anthropic", "ollama", "openai_compatible"];
+  const labels = {
+    anthropic: "Anthropic",
+    deepseek: "DeepSeek",
+    mock: "Local",
+    moonshot: "Moonshot",
+    ollama: "Local Runtime",
+    openai_compatible: "Compatible",
+    qwen: "Alibaba Qwen",
+  };
+  return order
+    .map((provider) => ({
+      label: labels[provider] || provider,
+      items: presets.filter((preset) => preset.provider === provider),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+function renderComposerModels() {
+  composerModelSelect.replaceChildren();
+  const custom = document.createElement("option");
+  custom.value = "";
+  custom.textContent = "Custom";
+  composerModelSelect.append(custom);
+  for (const preset of modelPresets) {
+    const option = document.createElement("option");
+    option.value = modelKey(preset);
+    option.textContent = `${preset.label} ${providerMark(preset.provider)}`;
+    composerModelSelect.append(option);
+  }
+  const add = document.createElement("option");
+  add.value = "__add__";
+  add.textContent = "添加模型...";
+  composerModelSelect.append(add);
+  syncComposerModel({
+    provider: modelProviderInput.value,
+    name: modelNameInput.value,
+  });
+}
+
+function applyModelPreset(preset) {
+  modelProviderInput.value = preset.provider;
+  modelBaseUrlInput.value = preset.baseUrl;
+  modelNameInput.value = preset.model;
+  modelNoteInput.value = preset.note;
+  syncComposerModel({ provider: preset.provider, name: preset.model });
+  highlightActivePreset();
+}
+
+function highlightActivePreset() {
+  for (const button of modelPresetList.querySelectorAll(".model-preset")) {
+    const isActive =
+      button.dataset.provider === modelProviderInput.value &&
+      button.dataset.model === modelNameInput.value;
+    button.classList.toggle("active", isActive);
+  }
+}
+
+function syncComposerModel(config) {
+  const matched = modelPresets.find(
+    (preset) => preset.provider === config.provider && preset.model === config.name
+  );
+  composerModelSelect.value = matched ? modelKey(matched) : "";
+}
+
+function modelKey(preset) {
+  return `${preset.provider}:${preset.model}`;
+}
+
+function providerMark(provider) {
+  return providerMarks[provider] || "•";
+}
+
+async function saveModelConfig() {
+  const apiKey = modelApiKeyInput.value.trim();
+  const payload = {
+    provider: modelProviderInput.value,
+    base_url: modelBaseUrlInput.value.trim() || null,
+    name: modelNameInput.value.trim(),
+    api_key: apiKey || null,
+    note: modelNoteInput.value.trim() || null,
+    api_key_mode: clearApiKeyInput.checked ? "clear" : apiKey ? "replace" : "preserve",
+    timeout_seconds: parseOptionalNumber(modelTimeoutInput.value) || 60,
+    max_retries: parseOptionalInteger(modelRetriesInput.value) ?? 2,
+  };
+
+  setStatus("保存中", "busy");
+  try {
+    const response = await fetch("/api/v1/model-config", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`保存失败：HTTP ${response.status} ${text}`);
+    }
+    const config = await response.json();
+    modelApiKeyInput.value = "";
+    clearApiKeyInput.checked = false;
+    modelKeyState.textContent = config.api_key_set ? "后端已保存 API Key" : "未保存 API Key";
+    modelConfigLoaded = true;
+    highlightActivePreset();
+    syncComposerModel(config);
+    setStatus("已保存");
+    window.setTimeout(() => setStatus("就绪"), 1400);
+  } catch (error) {
+    setStatus("出错", "error");
+    modelKeyState.textContent = error instanceof Error ? error.message : "保存失败";
+  }
+}
+
+function parseOptionalNumber(value) {
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseOptionalInteger(value) {
+  const parsed = parseOptionalNumber(value);
+  return parsed === null ? null : Math.trunc(parsed);
 }
 
 function enhanceCodeBlocks(bubble) {

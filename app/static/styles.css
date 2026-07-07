@@ -57,6 +57,10 @@ body {
   line-height: var(--leading-body);
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 button,
 input,
 textarea {
@@ -102,6 +106,7 @@ textarea {
 }
 
 .topbar,
+.model-modal,
 .brief-panel,
 .context-panel,
 .composer {
@@ -119,6 +124,200 @@ textarea {
   gap: 16px;
   border-radius: var(--radius);
   padding: 12px 14px;
+}
+
+.model-panel {
+  width: clamp(320px, 72vw, 860px);
+  height: clamp(500px, 78dvh, 700px);
+  max-width: calc(100vw - 48px);
+  max-height: calc(100dvh - 48px);
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--text);
+  overflow: hidden;
+}
+
+.model-panel::backdrop {
+  background:
+    radial-gradient(circle at 18% 12%, rgb(255 164 191 / 0.28), transparent 30rem),
+    rgb(245 246 252 / 0.5);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+
+.model-modal {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.42fr) minmax(0, 1fr);
+  gap: 18px;
+  height: 100%;
+  max-height: inherit;
+  overflow: hidden;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.model-sidebar {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  align-content: start;
+  gap: 12px;
+  border-right: 1px solid var(--line);
+  padding: 10px 18px 10px 8px;
+}
+
+.model-sidebar h2,
+.model-form-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  line-height: var(--leading-tight);
+}
+
+.model-list {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.model-search {
+  min-height: 42px;
+}
+
+.model-group {
+  margin: 10px 0 2px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.model-empty {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.model-preset {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  min-height: 50px;
+  justify-items: stretch;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 7px 8px;
+  box-shadow: none;
+}
+
+.model-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.model-main strong,
+.model-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-main strong {
+  font-size: var(--text-sm);
+  font-weight: 760;
+}
+
+.model-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.62);
+  color: var(--accent-dark);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.model-main small,
+.model-meta {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.model-meta {
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-preset.active {
+  border-color: rgb(255 111 145 / 0.22);
+  background: rgb(255 255 255 / 0.52);
+}
+
+.model-preset:hover {
+  background: rgb(255 255 255 / 0.46);
+}
+
+.model-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 16px;
+  align-items: end;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.model-form-head {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.model-note-field {
+  grid-column: 1 / -1;
+}
+
+.model-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.inline-check {
+  display: flex;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.inline-check input {
+  width: auto;
+}
+
+.model-key-state {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 
 .brand {
@@ -321,6 +520,7 @@ label {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid rgb(255 255 255 / 0.72);
@@ -344,6 +544,7 @@ textarea::placeholder {
 }
 
 input:focus,
+select:focus,
 textarea:focus,
 button:focus-visible,
 .command-actions button:focus-visible {
@@ -354,6 +555,10 @@ button:focus-visible,
 
 textarea {
   resize: vertical;
+}
+
+select {
+  appearance: none;
 }
 
 .messages {
@@ -535,10 +740,15 @@ textarea {
 }
 
 .composer-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.52fr) minmax(180px, 1fr) auto 48px 48px;
   align-items: center;
-  justify-content: flex-end;
   gap: 10px;
+}
+
+.composer-mode,
+.composer-model {
+  min-height: 48px;
 }
 
 .send-hint {
@@ -589,6 +799,19 @@ button.secondary {
     linear-gradient(rgb(255 255 255 / 0.68), rgb(255 255 255 / 0.46)) padding-box,
     linear-gradient(135deg, rgb(255 111 145 / 0.22), rgb(117 199 255 / 0.36)) border-box;
   color: var(--text);
+}
+
+button.model-close {
+  min-height: 40px;
+}
+
+button.icon-button {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  padding: 0;
+  font-size: var(--text-lg);
+  line-height: 1;
 }
 
 button.secondary:hover {
@@ -645,9 +868,38 @@ button.secondary:hover {
   }
 
   .topbar,
+  .model-form,
   .brief-panel,
   .context-panel {
     grid-template-columns: 1fr;
+  }
+
+  .model-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-items: stretch;
+  }
+
+  .model-key-state {
+    margin-right: 0;
+  }
+
+  .model-panel {
+    width: calc(100vw - 32px);
+    height: calc(100dvh - 32px);
+    max-height: calc(100dvh - 32px);
+  }
+
+  .model-modal {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 0.45fr) minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .model-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 4px 0 16px;
   }
 
   .session-meta,
@@ -706,14 +958,22 @@ button.secondary:hover {
 
   .composer-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 48px 48px;
+  }
+
+  .composer-picker {
+    grid-column: 1 / -1;
   }
 
   .send-hint {
     grid-column: 1 / -1;
   }
 
-  .composer-actions button {
-    width: 100%;
+  .composer-actions button.secondary {
+    grid-column: 2;
+  }
+
+  .composer-actions button[type="submit"] {
+    grid-column: 3;
   }
 }
