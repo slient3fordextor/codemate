@@ -6,6 +6,7 @@ from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestIdMiddleware, access_log_middleware
+from app.services.session_memory import InMemorySessionMemoryStore
 
 
 async def root_health_check() -> object:
@@ -19,6 +20,10 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app.name,
         version=settings.app.version,
+    )
+    app.state.session_memory_store = InMemorySessionMemoryStore(
+        max_turns=settings.session_memory.max_turns,
+        max_sessions=settings.session_memory.max_sessions,
     )
     app.add_middleware(RequestIdMiddleware)
     app.middleware("http")(access_log_middleware)

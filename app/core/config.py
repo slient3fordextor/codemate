@@ -36,6 +36,12 @@ class StorageConfig(BaseModel):
     enabled: bool = False
 
 
+class SessionMemoryConfig(BaseModel):
+    enabled: bool = True
+    max_turns: int = Field(default=10, gt=0)
+    max_sessions: int = Field(default=100, gt=0)
+
+
 ModelProviderName = Literal[
     "mock",
     "openai_compatible",
@@ -113,6 +119,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./codemate.db"
     storage_enabled: bool = False
 
+    session_memory_enabled: bool = True
+    session_memory_max_turns: int = 10
+    session_memory_max_sessions: int = 100
+
     model_provider: ModelProviderName = "mock"
     model_base_url: str | None = None
     model_name: str = "mock-model"
@@ -146,6 +156,14 @@ class Settings(BaseSettings):
         return StorageConfig(
             database_url=self.database_url,
             enabled=self.storage_enabled,
+        )
+
+    @property
+    def session_memory(self) -> SessionMemoryConfig:
+        return SessionMemoryConfig(
+            enabled=self.session_memory_enabled,
+            max_turns=self.session_memory_max_turns,
+            max_sessions=self.session_memory_max_sessions,
         )
 
     @property

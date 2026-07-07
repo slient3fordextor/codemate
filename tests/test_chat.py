@@ -40,6 +40,52 @@ def test_chat_completion_accepts_message_protocol_context() -> None:
     assert "event: usage.update" in body
 
 
+def test_chat_completion_uses_l1_session_memory() -> None:
+    client = TestClient(create_app())
+
+    with client.stream(
+        "POST",
+        "/api/v1/chat/completions",
+        json={"session_id": "ses_test_memory", "message": "第一轮"},
+    ) as response:
+        first_body = "".join(response.iter_text())
+
+    with client.stream(
+        "POST",
+        "/api/v1/chat/completions",
+        json={"session_id": "ses_test_memory", "message": "第二轮"},
+    ) as response:
+        second_body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert '"session_id": "ses_test_memory"' in first_body
+    assert '"input_tokens": 5' in second_body
+
+
+def test_chat_completion_messages_do_not_add_l1_session_memory() -> None:
+    client = TestClient(create_app())
+
+    with client.stream(
+        "POST",
+        "/api/v1/chat/completions",
+        json={"session_id": "ses_messages_mode", "message": "第一轮"},
+    ) as response:
+        "".join(response.iter_text())
+
+    with client.stream(
+        "POST",
+        "/api/v1/chat/completions",
+        json={
+            "session_id": "ses_messages_mode",
+            "messages": [{"role": "user", "content": "显式上下文"}],
+        },
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert '"input_tokens": 1' in body
+
+
 def test_chat_completion_requires_message_or_messages() -> None:
     client = TestClient(create_app())
 

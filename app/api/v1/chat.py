@@ -18,6 +18,8 @@ async def create_chat_completion(
     service = ChatService(
         model_adapter=build_model_adapter(settings.model),
         default_model=settings.model.name,
+        session_memory_store=request.app.state.session_memory_store,
+        session_memory_enabled=settings.session_memory.enabled,
     )
     request_id = getattr(request.state, "request_id", None)
 

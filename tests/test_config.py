@@ -80,6 +80,14 @@ def test_storage_config_is_disabled_by_default() -> None:
     assert settings.storage.database_url == "sqlite+aiosqlite:///./codemate.db"
 
 
+def test_session_memory_config_defaults_to_l1_enabled() -> None:
+    settings = Settings()
+
+    assert settings.session_memory.enabled is True
+    assert settings.session_memory.max_turns == 10
+    assert settings.session_memory.max_sessions == 100
+
+
 def test_get_settings_can_be_reloaded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_NAME", "CodeMate Test")
     get_settings.cache_clear()
