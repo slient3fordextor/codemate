@@ -465,6 +465,7 @@ textarea {
 }
 
 .command-card pre {
+  position: relative;
   margin: 0;
   padding: 14px;
   overflow-x: auto;
@@ -474,6 +475,18 @@ textarea {
   font-variant-numeric: tabular-nums;
   line-height: var(--leading-relaxed);
   white-space: pre;
+}
+
+.command-card pre::before {
+  display: block;
+  margin: 0 0 8px;
+  color: rgb(249 251 255 / 0.58);
+  content: attr(data-language);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .command-actions {

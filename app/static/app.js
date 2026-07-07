@@ -69,7 +69,7 @@ async function sendMessage(message) {
     await readSse(response.body, (eventName, data) => {
       handleStreamEvent(eventName, data, assistant);
     });
-    enhanceCommands(assistant.bubble);
+    enhanceCodeBlocks(assistant.bubble);
     setStatus("就绪");
   } catch (error) {
     assistant.bubble.textContent =
@@ -160,38 +160,48 @@ function appendMessage(role, content) {
   return { article, bubble, content };
 }
 
-function enhanceCommands(bubble) {
+function enhanceCodeBlocks(bubble) {
   const text = bubble.textContent || "";
-  const commandBlocks = extractShellCodeBlocks(text);
-  if (commandBlocks.length === 0) {
+  const codeBlocks = extractCodeBlocks(text);
+  if (codeBlocks.length === 0) {
     return;
   }
 
   bubble.textContent = "";
-  const intro = text.replace(/```(?:bash|sh|shell|zsh)?\n[\s\S]*?```/g, "").trim();
+  const intro = text.replace(/```[\w+-]*\n[\s\S]*?```/g, "").trim();
   if (intro) {
     const introEl = document.createElement("p");
     introEl.textContent = intro;
     bubble.append(introEl);
   }
 
-  for (const command of commandBlocks) {
-    bubble.append(createCommandCard(command));
+  for (const block of codeBlocks) {
+    bubble.append(createCodeCard(block));
   }
 }
 
-function extractShellCodeBlocks(text) {
+function extractCodeBlocks(text) {
   const blocks = [];
-  const pattern = /```(bash|sh|shell|zsh)?\n([\s\S]*?)```/g;
+  const pattern = /```([\w+-]*)\n([\s\S]*?)```/g;
   let match = pattern.exec(text);
   while (match) {
-    const command = match[2].trim();
-    if (command && looksLikeShellCommand(command)) {
-      blocks.push(command);
+    const language = normalizeLanguage(match[1]);
+    const code = match[2].trim();
+    if (code) {
+      blocks.push({ code, language });
     }
     match = pattern.exec(text);
   }
   return blocks;
+}
+
+function normalizeLanguage(language) {
+  const value = language.trim().toLowerCase();
+  return value || "text";
+}
+
+function isShellCode(language, code) {
+  return ["bash", "sh", "shell", "zsh"].includes(language) || looksLikeShellCommand(code);
 }
 
 function looksLikeShellCommand(command) {
@@ -201,17 +211,18 @@ function looksLikeShellCommand(command) {
   );
 }
 
-function createCommandCard(command) {
+function createCodeCard(block) {
   const card = document.createElement("details");
   card.className = "command-card";
   card.open = true;
 
   const summary = document.createElement("summary");
   summary.className = "command-summary";
-  summary.textContent = "可执行命令";
+  summary.textContent = getCodeTitle(block);
 
   const pre = document.createElement("pre");
-  pre.textContent = command;
+  pre.dataset.language = block.language;
+  pre.textContent = block.code;
 
   const actions = document.createElement("div");
   actions.className = "command-actions";
@@ -220,24 +231,54 @@ function createCommandCard(command) {
   copy.type = "button";
   copy.textContent = "复制";
   copy.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(command);
+    await navigator.clipboard.writeText(block.code);
     copy.textContent = "已复制";
     window.setTimeout(() => {
       copy.textContent = "复制";
     }, 1400);
   });
 
-  const explain = document.createElement("button");
-  explain.type = "button";
-  explain.textContent = "解释";
-  explain.addEventListener("click", () => {
-    input.value = `解释这个命令的作用、风险和预期输出：\n\n${command}`;
-    input.focus();
-  });
+  actions.append(copy);
 
-  actions.append(copy, explain);
+  if (isShellCode(block.language, block.code)) {
+    const explain = document.createElement("button");
+    explain.type = "button";
+    explain.textContent = "解释";
+    explain.addEventListener("click", () => {
+      input.value = `解释这个命令的作用、风险和预期输出：\n\n${block.code}`;
+      input.focus();
+    });
+    actions.append(explain);
+  }
+
   card.append(summary, pre, actions);
   return card;
+}
+
+function getCodeTitle(block) {
+  if (isShellCode(block.language, block.code)) {
+    return "可执行命令";
+  }
+
+  const labels = {
+    css: "CSS 代码",
+    html: "HTML 代码",
+    javascript: "JavaScript 代码",
+    js: "JavaScript 代码",
+    json: "JSON 数据",
+    jsx: "JSX 代码",
+    markdown: "Markdown 文档",
+    md: "Markdown 文档",
+    python: "Python 代码",
+    py: "Python 代码",
+    text: "代码片段",
+    ts: "TypeScript 代码",
+    tsx: "TSX 代码",
+    typescript: "TypeScript 代码",
+    yaml: "YAML 配置",
+    yml: "YAML 配置",
+  };
+  return labels[block.language] || `${block.language.toUpperCase()} 代码`;
 }
 
 function setBusy(isBusy) {
