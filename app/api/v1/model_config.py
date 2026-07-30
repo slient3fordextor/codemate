@@ -15,6 +15,7 @@ MODEL_ENV_KEYS = {
     "MODEL_NOTE",
     "MODEL_TIMEOUT_SECONDS",
     "MODEL_MAX_RETRIES",
+    "MODEL_CONTEXT_WINDOW",
 }
 
 
@@ -30,6 +31,7 @@ async def get_model_config() -> ModelConfigResponse:
         note=model.note,
         timeout_seconds=model.timeout_seconds,
         max_retries=model.max_retries,
+        context_window=model.context_window,
     )
 
 
@@ -54,6 +56,7 @@ async def update_model_config(request: ModelConfigUpdateRequest) -> ModelConfigR
         "MODEL_NOTE": request.note or "",
         "MODEL_TIMEOUT_SECONDS": str(request.timeout_seconds),
         "MODEL_MAX_RETRIES": str(request.max_retries),
+        "MODEL_CONTEXT_WINDOW": str(request.context_window),
     }
 
     _write_env_values(env_path, values)

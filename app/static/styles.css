@@ -763,7 +763,7 @@ button {
   border: 1px solid rgb(255 255 255 / 0.72);
   border-radius: var(--radius-sm);
   background:
-    linear-gradient(135deg, rgb(255 111 145 / 0.88), rgb(255 159 122 / 0.88)) padding-box,
+    linear-gradient(135deg, rgba(255, 111, 157, 0.88), rgba(212, 115, 63, 0.88)) padding-box,
     linear-gradient(135deg, rgb(255 255 255 / 0.82), rgb(117 199 255 / 0.42)) border-box;
   color: #fff;
   padding: 8px 15px;
@@ -961,7 +961,8 @@ button.secondary:hover {
     grid-template-columns: 1fr 48px 48px;
   }
 
-  .composer-picker {
+  .composer-mode,
+  .composer-model {
     grid-column: 1 / -1;
   }
 

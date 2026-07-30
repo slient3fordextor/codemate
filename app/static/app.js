@@ -20,6 +20,7 @@ const modelTemperatureInput = document.querySelector("#modelTemperature");
 const modelMaxTokensInput = document.querySelector("#modelMaxTokens");
 const modelTimeoutInput = document.querySelector("#modelTimeout");
 const modelRetriesInput = document.querySelector("#modelRetries");
+const modelContextWindowInput = document.querySelector("#modelContextWindow");
 const clearApiKeyInput = document.querySelector("#clearApiKey");
 const modelKeyState = document.querySelector("#modelKeyState");
 const operationModeSelect = document.querySelector("#operationModeSelect");
@@ -353,6 +354,7 @@ async function loadModelConfig() {
     modelNoteInput.value = config.note || "";
     modelTimeoutInput.value = String(config.timeout_seconds || 60);
     modelRetriesInput.value = String(config.max_retries ?? 2);
+    modelContextWindowInput.value = String(config.context_window || 32768);
     clearApiKeyInput.checked = false;
     modelKeyState.textContent =
       provider === "mock"
@@ -515,6 +517,7 @@ async function saveModelConfig() {
     api_key_mode: clearApiKeyInput.checked ? "clear" : apiKey ? "replace" : "preserve",
     timeout_seconds: parseOptionalNumber(modelTimeoutInput.value) || 60,
     max_retries: parseOptionalInteger(modelRetriesInput.value) ?? 2,
+    context_window: parseOptionalInteger(modelContextWindowInput.value) || 32768,
   };
 
   setStatus("保存中", "busy");

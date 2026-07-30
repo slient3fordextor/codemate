@@ -23,6 +23,7 @@ def test_model_config_can_be_saved_to_env_file(
             "api_key_mode": "replace",
             "timeout_seconds": 45,
             "max_retries": 3,
+            "context_window": 128000,
         },
     )
 
@@ -35,6 +36,7 @@ def test_model_config_can_be_saved_to_env_file(
         "note": "main coding model",
         "timeout_seconds": 45.0,
         "max_retries": 3,
+        "context_window": 128000,
     }
 
     env_text = (tmp_path / ".env").read_text(encoding="utf-8")
@@ -45,6 +47,7 @@ def test_model_config_can_be_saved_to_env_file(
     assert 'MODEL_NOTE="main coding model"' in env_text
     assert "MODEL_TIMEOUT_SECONDS=45.0" in env_text
     assert "MODEL_MAX_RETRIES=3" in env_text
+    assert "MODEL_CONTEXT_WINDOW=128000" in env_text
 
 
 def test_model_config_preserves_existing_api_key(

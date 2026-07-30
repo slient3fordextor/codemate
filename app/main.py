@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestIdMiddleware, access_log_middleware
+from app.services.persistent_memory import SQLiteSessionMemoryStore
 from app.services.session_memory import InMemorySessionMemoryStore
 
 
@@ -29,10 +30,25 @@ def create_app() -> FastAPI:
         title=settings.app.name,
         version=settings.app.version,
     )
-    app.state.session_memory_store = InMemorySessionMemoryStore(
-        max_turns=settings.session_memory.max_turns,
-        max_sessions=settings.session_memory.max_sessions,
-    )
+    if settings.session_memory.backend == "sqlite":
+        app.state.session_memory_store = SQLiteSessionMemoryStore(
+            database_path=settings.session_memory.database_path,
+            project_root=settings.workspace.root,
+            max_turns=settings.session_memory.max_turns,
+            max_sessions=settings.session_memory.max_sessions,
+            medium_term_enabled=settings.session_memory.medium_term_enabled,
+            medium_term_max_tokens=settings.session_memory.medium_term_max_tokens,
+            long_term_enabled=settings.session_memory.long_term_enabled,
+            long_term_max_items=settings.session_memory.long_term_max_items,
+            sensitive_content_detection_enabled=(
+                settings.security.enable_sensitive_content_detection
+            ),
+        )
+    else:
+        app.state.session_memory_store = InMemorySessionMemoryStore(
+            max_turns=settings.session_memory.max_turns,
+            max_sessions=settings.session_memory.max_sessions,
+        )
     app.add_middleware(RequestIdMiddleware)
     app.middleware("http")(access_log_middleware)
     register_exception_handlers(app)

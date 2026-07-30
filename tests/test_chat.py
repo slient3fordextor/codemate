@@ -60,6 +60,7 @@ def test_chat_completion_uses_l1_session_memory() -> None:
     assert response.status_code == 200
     assert '"session_id": "ses_test_memory"' in first_body
     assert '"input_tokens": 5' in second_body
+    assert '"memory_tokens": 0' not in second_body
 
 
 def test_chat_completion_messages_do_not_add_l1_session_memory() -> None:
@@ -90,5 +91,16 @@ def test_chat_completion_requires_message_or_messages() -> None:
     client = TestClient(create_app())
 
     response = client.post("/api/v1/chat/completions", json={"stream": True})
+
+    assert response.status_code == 422
+
+
+def test_chat_completion_rejects_unsafe_session_id() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/chat/completions",
+        json={"session_id": "../outside", "message": "hello"},
+    )
 
     assert response.status_code == 422

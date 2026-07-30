@@ -12,7 +12,12 @@ class ChatMessage(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
-    session_id: str | None = None
+    session_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
     message: str | None = None
     messages: list[ChatMessage] | None = None
     current_file: str | None = None
@@ -46,6 +51,8 @@ class ChatStreamEvent(BaseModel):
         "message.done",
         "usage.update",
         "task.update",
+        "context.usage",
+        "memory.warning",
         "error",
     ]
     data: dict[str, Any]

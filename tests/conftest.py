@@ -11,6 +11,10 @@ def clear_settings_cache(
     tmp_path,
 ) -> Generator[None]:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "SESSION_MEMORY_DATABASE_PATH",
+        str(tmp_path / ".codemate" / "memory.sqlite3"),
+    )
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

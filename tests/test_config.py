@@ -80,12 +80,29 @@ def test_storage_config_is_disabled_by_default() -> None:
     assert settings.storage.database_url == "sqlite+aiosqlite:///./codemate.db"
 
 
-def test_session_memory_config_defaults_to_l1_enabled() -> None:
+def test_session_memory_config_defaults_to_persistent_layers_enabled() -> None:
     settings = Settings()
 
     assert settings.session_memory.enabled is True
+    assert settings.session_memory.backend == "sqlite"
+    assert settings.session_memory.database_path.name == "memory.sqlite3"
     assert settings.session_memory.max_turns == 10
     assert settings.session_memory.max_sessions == 100
+    assert settings.session_memory.medium_term_enabled is True
+    assert settings.session_memory.medium_term_max_tokens == 1_536
+    assert settings.session_memory.long_term_enabled is True
+    assert settings.session_memory.long_term_max_items == 20
+
+
+def test_legacy_character_budget_is_ignored_with_deprecation_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SESSION_MEMORY_MEDIUM_TERM_MAX_CHARS", "9000")
+
+    with pytest.warns(DeprecationWarning, match="MAX_TOKENS"):
+        settings = Settings()
+
+    assert settings.session_memory.medium_term_max_tokens == 1_536
 
 
 def test_get_settings_can_be_reloaded(monkeypatch: pytest.MonkeyPatch) -> None:

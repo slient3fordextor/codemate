@@ -1,3 +1,4 @@
+import warnings
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -38,8 +39,28 @@ class StorageConfig(BaseModel):
 
 class SessionMemoryConfig(BaseModel):
     enabled: bool = True
+    backend: Literal["memory", "sqlite"] = "sqlite"
+    database_path: Path = Field(default_factory=lambda: Path("~/.codemate/memory.sqlite3"))
     max_turns: int = Field(default=10, gt=0)
     max_sessions: int = Field(default=100, gt=0)
+    medium_term_enabled: bool = True
+    medium_term_max_tokens: int = Field(default=1_536, gt=0)
+    long_term_enabled: bool = True
+    long_term_max_items: int = Field(default=20, gt=0)
+
+    @field_validator("database_path")
+    @classmethod
+    def normalize_database_path(cls, value: Path) -> Path:
+        return value.expanduser().resolve()
+
+
+class LanguageSupportConfig(BaseModel):
+    enabled: bool = True
+    default_level: str = "L1"
+    context_max_files: int = Field(default=8, gt=0)
+    context_max_bytes: int = Field(default=120_000, gt=0)
+    enable_tree_sitter: bool = False
+    enable_lsp: bool = False
 
 
 ModelProviderName = Literal[
@@ -64,6 +85,7 @@ class ModelProviderConfig(BaseModel):
     note: str | None = None
     timeout_seconds: float = 60.0
     max_retries: int = 2
+    context_window: int = Field(default=32_768, gt=0)
 
     @model_validator(mode="after")
     def validate_provider_requirements(self) -> "ModelProviderConfig":
@@ -121,8 +143,24 @@ class Settings(BaseSettings):
     storage_enabled: bool = False
 
     session_memory_enabled: bool = True
+    session_memory_backend: Literal["memory", "sqlite"] = "sqlite"
+    session_memory_database_path: Path = Field(
+        default_factory=lambda: Path("~/.codemate/memory.sqlite3")
+    )
     session_memory_max_turns: int = 10
     session_memory_max_sessions: int = 100
+    session_memory_medium_term_enabled: bool = True
+    session_memory_medium_term_max_tokens: int = 1_536
+    session_memory_medium_term_max_chars: int | None = None
+    session_memory_long_term_enabled: bool = True
+    session_memory_long_term_max_items: int = 20
+
+    language_support_enabled: bool = True
+    language_default_level: str = "L1"
+    language_context_max_files: int = 8
+    language_context_max_bytes: int = 120_000
+    language_enable_tree_sitter: bool = False
+    language_enable_lsp: bool = False
 
     model_provider: ModelProviderName = "mock"
     model_base_url: str | None = None
@@ -131,10 +169,22 @@ class Settings(BaseSettings):
     model_note: str | None = None
     model_timeout_seconds: float = 60.0
     model_max_retries: int = 2
+    model_context_window: int = 32_768
 
     enable_sensitive_content_detection: bool = True
     enable_rate_limit: bool = False
     rate_limit_per_minute: int = 60
+
+    @model_validator(mode="after")
+    def warn_about_deprecated_memory_character_budget(self) -> "Settings":
+        if self.session_memory_medium_term_max_chars is not None:
+            warnings.warn(
+                "SESSION_MEMORY_MEDIUM_TERM_MAX_CHARS is deprecated and ignored; "
+                "set SESSION_MEMORY_MEDIUM_TERM_MAX_TOKENS instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return self
 
     @property
     def app(self) -> AppConfig:
@@ -164,8 +214,25 @@ class Settings(BaseSettings):
     def session_memory(self) -> SessionMemoryConfig:
         return SessionMemoryConfig(
             enabled=self.session_memory_enabled,
+            backend=self.session_memory_backend,
+            database_path=self.session_memory_database_path,
             max_turns=self.session_memory_max_turns,
             max_sessions=self.session_memory_max_sessions,
+            medium_term_enabled=self.session_memory_medium_term_enabled,
+            medium_term_max_tokens=self.session_memory_medium_term_max_tokens,
+            long_term_enabled=self.session_memory_long_term_enabled,
+            long_term_max_items=self.session_memory_long_term_max_items,
+        )
+
+    @property
+    def language_support(self) -> LanguageSupportConfig:
+        return LanguageSupportConfig(
+            enabled=self.language_support_enabled,
+            default_level=self.language_default_level,
+            context_max_files=self.language_context_max_files,
+            context_max_bytes=self.language_context_max_bytes,
+            enable_tree_sitter=self.language_enable_tree_sitter,
+            enable_lsp=self.language_enable_lsp,
         )
 
     @property
@@ -178,6 +245,7 @@ class Settings(BaseSettings):
             note=self.model_note,
             timeout_seconds=self.model_timeout_seconds,
             max_retries=self.model_max_retries,
+            context_window=self.model_context_window,
         )
 
     @property

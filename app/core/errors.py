@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette import status
 
 from app.schemas.errors import ErrorDetail, ErrorResponse
+from app.services.persistent_memory import MemoryStoreError
 
 logger = logging.getLogger("codemate.errors")
 
@@ -45,6 +46,18 @@ def _error_response(
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(MemoryStoreError)
+    async def memory_store_error_handler(
+        request: Request,
+        exc: MemoryStoreError,
+    ) -> JSONResponse:
+        return _error_response(
+            exc.code,
+            exc.message,
+            request,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         return _error_response(exc.code, exc.message, request, exc.status_code)
