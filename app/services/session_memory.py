@@ -35,8 +35,9 @@ class MemoryCapabilities:
 
 class SessionMemoryStore(Protocol):
     @property
-    def capabilities(self) -> MemoryCapabilities:
-        ...
+    def capabilities(self) -> MemoryCapabilities: ...
+
+    async def ping(self) -> None: ...
 
     async def get_messages(
         self,
@@ -44,8 +45,7 @@ class SessionMemoryStore(Protocol):
         current_user_message: str = "",
         token_counter: TokenCounter | None = None,
         token_budget: int | None = None,
-    ) -> list[ChatMessage]:
-        ...
+    ) -> list[ChatMessage]: ...
 
     async def append_turn(
         self,
@@ -54,29 +54,21 @@ class SessionMemoryStore(Protocol):
         assistant_message: str,
         token_counter: TokenCounter | None = None,
         request_id: str | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
-    async def clear(self) -> None:
-        ...
+    async def clear(self) -> None: ...
 
-    async def clear_project(self) -> None:
-        ...
+    async def clear_project(self) -> None: ...
 
-    async def clear_global_preferences(self) -> None:
-        ...
+    async def clear_global_preferences(self) -> None: ...
 
-    async def delete_session(self, session_id: str) -> None:
-        ...
+    async def delete_session(self, session_id: str) -> None: ...
 
-    async def delete_preference(self, preference_id: int) -> bool:
-        ...
+    async def delete_preference(self, preference_id: int) -> bool: ...
 
-    async def list_preferences(self) -> list[Any]:
-        ...
+    async def list_preferences(self) -> list[Any]: ...
 
-    async def list_conflicts(self) -> list[Any]:
-        ...
+    async def list_conflicts(self) -> list[Any]: ...
 
 
 @dataclass
@@ -98,6 +90,9 @@ class InMemorySessionMemoryStore:
             cross_process=False,
             preference_management=False,
         )
+
+    async def ping(self) -> None:
+        return None
 
     async def get_messages(
         self,

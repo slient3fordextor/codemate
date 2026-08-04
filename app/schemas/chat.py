@@ -22,7 +22,7 @@ class ChatCompletionRequest(BaseModel):
     messages: list[ChatMessage] | None = None
     current_file: str | None = None
     selected_text: str | None = None
-    stream: bool = True
+    stream: Literal[True] = True
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, gt=0)

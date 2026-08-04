@@ -23,6 +23,6 @@ class ModelConfigUpdateRequest(BaseModel):
     api_key: str | None = None
     note: str | None = None
     timeout_seconds: float = Field(default=60.0, gt=0)
-    max_retries: int = Field(default=2, ge=0)
+    max_retries: int = Field(default=2, ge=0, le=10)
     context_window: int = Field(default=32_768, gt=0)
     api_key_mode: Literal["preserve", "replace", "clear"] = "preserve"

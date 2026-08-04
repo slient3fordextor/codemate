@@ -1,7 +1,9 @@
 import warnings
 from functools import lru_cache
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +25,7 @@ class WorkspaceConfig(BaseModel):
         ".venv",
         "__pycache__",
         "node_modules",
+        ".codemate",
         ".env",
     )
 
@@ -84,7 +87,7 @@ class ModelProviderConfig(BaseModel):
     api_key: str | None = None
     note: str | None = None
     timeout_seconds: float = 60.0
-    max_retries: int = 2
+    max_retries: int = Field(default=2, ge=0, le=10)
     context_window: int = Field(default=32_768, gt=0)
 
     @model_validator(mode="after")
@@ -101,13 +104,45 @@ class ModelProviderConfig(BaseModel):
         if self.provider in base_url_required_providers and not self.base_url:
             msg = f"model_base_url is required when model_provider is {self.provider}"
             raise ValueError(msg)
+        if self.base_url:
+            parsed = urlsplit(self.base_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("model_base_url must be an absolute HTTP(S) URL")
+            if parsed.username or parsed.password:
+                raise ValueError("model_base_url cannot contain credentials")
+            is_loopback = parsed.hostname == "localhost"
+            try:
+                address = ip_address(parsed.hostname)
+            except ValueError:
+                address = None
+            if address is not None:
+                is_loopback = address.is_loopback
+                private_address = address.is_private or address.is_link_local or address.is_reserved
+                if private_address and not is_loopback:
+                    raise ValueError("model_base_url cannot use a private or reserved IP address")
+            if parsed.scheme == "http" and not is_loopback:
+                raise ValueError("Plain HTTP model endpoints are only allowed on loopback")
         return self
 
 
 class SecurityConfig(BaseModel):
     enable_sensitive_content_detection: bool = True
     enable_rate_limit: bool = False
-    rate_limit_per_minute: int = 60
+    rate_limit_per_minute: int = Field(default=60, gt=0)
+    rate_limit_database_path: Path | None = None
+    allow_remote_api: bool = False
+    remote_api_token: str | None = None
+
+    @model_validator(mode="after")
+    def validate_remote_access(self) -> "SecurityConfig":
+        if self.allow_remote_api and not self.remote_api_token:
+            raise ValueError("remote_api_token is required when remote API access is enabled")
+        return self
+
+    @field_validator("rate_limit_database_path")
+    @classmethod
+    def normalize_rate_limit_path(cls, value: Path | None) -> Path | None:
+        return value.expanduser().resolve() if value is not None else None
 
 
 class LoggingConfig(BaseModel):
@@ -168,12 +203,15 @@ class Settings(BaseSettings):
     model_api_key: str | None = None
     model_note: str | None = None
     model_timeout_seconds: float = 60.0
-    model_max_retries: int = 2
+    model_max_retries: int = Field(default=2, ge=0, le=10)
     model_context_window: int = 32_768
 
     enable_sensitive_content_detection: bool = True
     enable_rate_limit: bool = False
-    rate_limit_per_minute: int = 60
+    rate_limit_per_minute: int = Field(default=60, gt=0)
+    rate_limit_database_path: Path | None = None
+    allow_remote_api: bool = False
+    remote_api_token: str | None = None
 
     @model_validator(mode="after")
     def warn_about_deprecated_memory_character_budget(self) -> "Settings":
@@ -254,6 +292,9 @@ class Settings(BaseSettings):
             enable_sensitive_content_detection=self.enable_sensitive_content_detection,
             enable_rate_limit=self.enable_rate_limit,
             rate_limit_per_minute=self.rate_limit_per_minute,
+            rate_limit_database_path=self.rate_limit_database_path,
+            allow_remote_api=self.allow_remote_api,
+            remote_api_token=self.remote_api_token,
         )
 
     @property

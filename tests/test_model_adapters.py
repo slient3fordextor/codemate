@@ -1,7 +1,10 @@
+from collections.abc import AsyncIterator
+
+import httpx
 import pytest
 
 from app.adapters.models.anthropic import AnthropicClaudeModelAdapter
-from app.adapters.models.base import ModelRequest
+from app.adapters.models.base import ModelChunk, ModelRequest
 from app.adapters.models.factory import build_model_adapter
 from app.adapters.models.openai_compatible import OpenAICompatibleModelAdapter
 from app.core.config import ModelProviderConfig
@@ -96,3 +99,35 @@ def test_anthropic_error_event_raises_provider_error() -> None:
             'data: {"type":"error","error":{"type":"invalid_request_error",'
             '"message":"bad request"}}'
         )
+
+
+@pytest.mark.asyncio
+async def test_openai_adapter_retries_before_stream_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = OpenAICompatibleModelAdapter(
+        ModelProviderConfig(
+            provider="openai_compatible",
+            base_url="https://api.example.com/v1",
+            name="test-model",
+            max_retries=2,
+        )
+    )
+    attempts = 0
+
+    async def stream_attempt(*args: object, **kwargs: object) -> AsyncIterator[ModelChunk]:
+        nonlocal attempts
+        del args, kwargs
+        attempts += 1
+        if attempts < 3:
+            raise httpx.ConnectError("temporary failure")
+        yield ModelChunk(type="message.start")
+        yield ModelChunk(type="message.done", finish_reason="stop")
+
+    monkeypatch.setattr(adapter, "_stream_attempt", stream_attempt)
+    request = ModelRequest(messages=[ChatMessage(role="user", content="hello")])
+
+    chunks = [chunk async for chunk in adapter.stream_chat(request)]
+
+    assert attempts == 3
+    assert [chunk.type for chunk in chunks] == ["message.start", "message.done"]

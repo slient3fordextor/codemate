@@ -1,11 +1,14 @@
 HOST ?= 127.0.0.1
 PORT ?= 8000
-PYTHON ?= python
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 
-.PHONY: dev test lint format typecheck
+.PHONY: dev sync test lint format typecheck check
 
 dev:
 	uvicorn app.main:app --reload --host $(HOST) --port $(PORT)
+
+sync:
+	$(PYTHON) -m pip install -c requirements.lock -e ".[dev]"
 
 test:
 	$(PYTHON) -m pytest
@@ -17,4 +20,6 @@ format:
 	$(PYTHON) -m ruff format .
 
 typecheck:
-	$(PYTHON) -m mypy app tests
+	$(PYTHON) -m mypy app
+
+check: lint typecheck test

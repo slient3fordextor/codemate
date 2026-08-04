@@ -85,6 +85,12 @@ class SQLiteSessionMemoryStore:
             preference_management=self._long_term_enabled,
         )
 
+    async def ping(self) -> None:
+        try:
+            await asyncio.to_thread(self._ping_sync)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise MemoryStoreError(f"Persistent memory is unavailable: {exc}") from exc
+
     async def get_messages(
         self,
         session_id: str,
@@ -318,9 +324,7 @@ class SQLiteSessionMemoryStore:
         persisted_user_message = self._sensitive_detector.redact(user_message)
         persisted_assistant_message = self._sensitive_detector.redact(assistant_message)
         preferences = (
-            self._preference_extractor.extract(user_message)
-            if self._long_term_enabled
-            else []
+            self._preference_extractor.extract(user_message) if self._long_term_enabled else []
         )
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -581,9 +585,7 @@ class SQLiteSessionMemoryStore:
                 if old_row["id"] == new_row["id"]:
                     continue
                 relation = (
-                    "duplicate"
-                    if old_row["preference_value"] == preference.value
-                    else "supersedes"
+                    "duplicate" if old_row["preference_value"] == preference.value else "supersedes"
                 )
                 connection.execute(
                     """
@@ -651,8 +653,7 @@ class SQLiteSessionMemoryStore:
         preferences: list[LongTermPreference],
     ) -> ChatMessage:
         rendered = "\n".join(
-            f"- [{item.scope}/{item.category}/{item.key}] {item.content}"
-            for item in preferences
+            f"- [{item.scope}/{item.category}/{item.key}] {item.content}" for item in preferences
         )
         return ChatMessage(
             role="user",
@@ -1041,6 +1042,11 @@ class SQLiteSessionMemoryStore:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
         return connection
+
+    def _ping_sync(self) -> None:
+        self._ensure_initialized()
+        with self._connect() as connection:
+            connection.execute("SELECT 1").fetchone()
 
     def _build_project_key(self, project_root: Path) -> str:
         normalized_root = str(project_root.expanduser().resolve())

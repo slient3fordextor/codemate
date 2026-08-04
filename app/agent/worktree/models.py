@@ -53,3 +53,20 @@ class WorktreeChangeSet:
     @property
     def dirty(self) -> bool:
         return bool(self.tracked_patch or self.untracked_paths)
+
+
+@dataclass(frozen=True)
+class DeliveryResult:
+    task_id: str
+    target_path: Path
+    changed_paths: tuple[Path, ...]
+    applied_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        task_id: str,
+        target_path: Path,
+        changed_paths: tuple[Path, ...],
+    ) -> "DeliveryResult":
+        return cls(task_id, target_path, changed_paths, datetime.now(UTC))

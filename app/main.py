@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -9,13 +9,21 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
-from app.core.middleware import RequestIdMiddleware, access_log_middleware
+from app.core.middleware import (
+    APIAccessMiddleware,
+    RateLimitMiddleware,
+    RequestIdMiddleware,
+    access_log_middleware,
+)
 from app.services.persistent_memory import SQLiteSessionMemoryStore
 from app.services.session_memory import InMemorySessionMemoryStore
 
 
-async def root_health_check() -> object:
-    return build_health_response()
+async def root_health_check(request: Request, response: Response) -> object:
+    result = await build_health_response(request.app.state.session_memory_store)
+    if result.status != "ok":
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return result
 
 
 def web_index() -> FileResponse:
@@ -49,6 +57,8 @@ def create_app() -> FastAPI:
             max_turns=settings.session_memory.max_turns,
             max_sessions=settings.session_memory.max_sessions,
         )
+    app.add_middleware(APIAccessMiddleware)
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RequestIdMiddleware)
     app.middleware("http")(access_log_middleware)
     register_exception_handlers(app)

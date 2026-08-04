@@ -1,5 +1,6 @@
-"""Sandbox contracts. Execution backends are intentionally not enabled yet."""
+"""Sandbox policy and process-isolated command execution."""
 
+from app.agent.sandbox.executor import BubblewrapExecutor, CommandArtifact
 from app.agent.sandbox.policy import SandboxPolicy, SandboxPolicyError
 
-__all__ = ["SandboxPolicy", "SandboxPolicyError"]
+__all__ = ["BubblewrapExecutor", "CommandArtifact", "SandboxPolicy", "SandboxPolicyError"]

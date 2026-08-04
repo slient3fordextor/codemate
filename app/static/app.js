@@ -27,7 +27,7 @@ const operationModeSelect = document.querySelector("#operationModeSelect");
 const composerModelSelect = document.querySelector("#composerModelSelect");
 
 let sessionId = localStorage.getItem("codemate.sessionId") || "";
-let operationMode = localStorage.getItem("codemate.operationMode") || "confirm";
+let operationMode = "chat";
 let activeController = null;
 let modelConfigLoaded = false;
 
@@ -98,29 +98,9 @@ const providerMarks = {
 
 const operationModes = [
   {
-    value: "confirm",
-    label: "确认",
-    description: "手动确认每个操作的默认模式",
-  },
-  {
-    value: "readonly",
-    label: "只读",
-    description: "仅使用只读工具，不创建或编辑文件",
-  },
-  {
-    value: "plan",
-    label: "规划",
-    description: "生成计划，等待用户审批后执行",
-  },
-  {
-    value: "agent",
-    label: "代理",
-    description: "自动接受文件创建和编辑",
-  },
-  {
-    value: "auto",
-    label: "自动",
-    description: "完全自动化执行",
+    value: "chat",
+    label: "对话",
+    description: "不执行文件或命令操作",
   },
 ];
 
@@ -152,10 +132,7 @@ modelCloseButton.addEventListener("click", () => {
 
 modelPanel.addEventListener("close", () => {
   document.body.classList.remove("modal-open");
-  syncComposerModel({
-    provider: modelProviderInput.value,
-    name: modelNameInput.value,
-  });
+  void loadModelConfig();
 });
 
 modelPanel.addEventListener("click", (event) => {
@@ -178,6 +155,7 @@ input.addEventListener("keydown", (event) => {
 renderModelPresets();
 renderComposerModels();
 operationModeSelect.value = operationMode;
+void loadModelConfig();
 
 modelSearchInput.addEventListener("input", () => {
   renderModelPresets(modelSearchInput.value);
@@ -199,6 +177,8 @@ composerModelSelect.addEventListener("change", () => {
   const preset = modelPresets.find((item) => modelKey(item) === composerModelSelect.value);
   if (preset) {
     applyModelPreset(preset);
+    openModelPanel();
+    setStatus("保存模型配置后生效", "busy");
   }
 });
 
@@ -230,6 +210,7 @@ async function sendMessage(message) {
   }
 
   try {
+    let streamFailed = false;
     const response = await fetch("/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -245,10 +226,12 @@ async function sendMessage(message) {
     }
 
     await readSse(response.body, (eventName, data) => {
-      handleStreamEvent(eventName, data, assistant);
+      streamFailed = handleStreamEvent(eventName, data, assistant) || streamFailed;
     });
     enhanceCodeBlocks(assistant.bubble);
-    setStatus("就绪");
+    if (!streamFailed) {
+      setStatus("就绪");
+    }
   } catch (error) {
     assistant.bubble.textContent =
       error instanceof Error ? error.message : "请求失败，请稍后重试。";
@@ -303,20 +286,27 @@ function handleStreamEvent(eventName, data, assistant) {
   if (eventName === "message.start" && data.session_id) {
     sessionId = data.session_id;
     localStorage.setItem("codemate.sessionId", sessionId);
-    return;
+    return false;
   }
 
   if (eventName === "message.delta" && data.content) {
     assistant.content += data.content;
     assistant.bubble.textContent = assistant.content;
     scrollToBottom();
-    return;
+    return false;
   }
 
   if (eventName === "error") {
     assistant.bubble.textContent = data.message || "模型服务返回错误。";
     setStatus("出错", "error");
+    return true;
   }
+  if (eventName === "memory.warning") {
+    appendMessage("assistant", `记忆未保存：${data.message || "存储不可用"}`);
+    setStatus("记忆警告", "error");
+    return true;
+  }
+  return false;
 }
 
 function appendMessage(role, content) {

@@ -1,6 +1,6 @@
 # Git 工作树隔离策略
 
-> 状态：P0 已确定的产品方向。`WorktreeManager`、`GitAdapter` 与仅负责路径校验的 `SandboxPolicy` 已实现为未接入执行图的基础库；实际 Sandbox Executor、任务持久化、补丁应用和完整清理流程仍未实现。`SandboxPolicy.require_process_isolation()` 在执行器缺失时固定 fail-closed，不能用路径校验结果代替进程隔离。
+> 状态（2026-08-04）：P0 串行闭环已实现。`WorktreeManager`/`GitAdapter` 负责隔离与交付，`WorkspaceEditor` 负责 diff 提案和原子写入，`BubblewrapExecutor` 负责 Linux 进程隔离，`SQLiteAgentStore` 负责图、Loop 与任务 checkpoint；`deliver`/`discard` 是显式交付动作。缺少 Bubblewrap 时命令执行固定 fail-closed。
 
 ## 1. 决策
 

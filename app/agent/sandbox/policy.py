@@ -37,9 +37,7 @@ class SandboxPolicy:
 
     def resolve_workspace_path(self, path: Path) -> Path:
         candidate = (
-            (self.workspace_root / path).resolve()
-            if not path.is_absolute()
-            else path.resolve()
+            (self.workspace_root / path).resolve() if not path.is_absolute() else path.resolve()
         )
         try:
             candidate.relative_to(self.workspace_root)

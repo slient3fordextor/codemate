@@ -59,6 +59,35 @@ def test_task_change_set_includes_untracked_text_binary_and_empty_files(tmp_path
     manager.discard(task, force=True)
 
 
+def test_task_delivery_applies_reviewed_changes_and_empty_files(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    manager = WorktreeManager(repository, tmp_path / "tasks")
+    task = manager.create("delivery")
+    (task.path / "app.py").write_text("value = 2\n", encoding="utf-8")
+    (task.path / "empty.txt").touch()
+
+    result = manager.deliver(task, repository)
+
+    assert result.changed_paths == (Path("app.py"), Path("empty.txt"))
+    assert (repository / "app.py").read_text(encoding="utf-8") == "value = 2\n"
+    assert (repository / "empty.txt").read_bytes() == b""
+    manager.discard(task, force=True)
+
+
+def test_task_delivery_rejects_overlapping_source_changes(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    manager = WorktreeManager(repository, tmp_path / "tasks")
+    task = manager.create("conflict")
+    (task.path / "app.py").write_text("value = 2\n", encoding="utf-8")
+    (repository / "app.py").write_text("value = 3\n", encoding="utf-8")
+
+    with pytest.raises(WorktreeError, match="overlapping"):
+        manager.deliver(task, repository)
+
+    assert (repository / "app.py").read_text(encoding="utf-8") == "value = 3\n"
+    manager.discard(task, force=True)
+
+
 def test_tracked_diff_is_only_included_when_requested(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
     (repository / "app.py").write_text("value = 3\n", encoding="utf-8")

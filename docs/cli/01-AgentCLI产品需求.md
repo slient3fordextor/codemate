@@ -1,5 +1,7 @@
 # CodeMate Agent CLI 产品需求
 
+> 当前实现状态（2026-08-04）：已经提供 `codemate`、`codemate run`、`deliver` 与 `discard`，并接通 `readonly`、`confirm`、`agent` 三种真实策略。可写任务使用独立 Git worktree、diff 提案/审批、Bubblewrap 验证、SQLite checkpoint 和显式交付；命令沙箱当前要求 Linux Bubblewrap。Web 仍只提供对话，不宣称编码模式。
+
 ## 1. 产品定位
 
 CodeMate Agent CLI 是本地优先的交互式编码代理。它面向已打开终端、正在处理真实代码仓库的开发者：用户描述目标，代理先理解项目和约束，再在明确的权限范围内读取文件、编辑代码、执行命令和验证结果，并持续展示过程。
@@ -68,9 +70,10 @@ idle -> understanding -> awaiting_approval -> running -> verifying
 | 模式 | 自动允许 | 每次确认 | 禁止 |
 | --- | --- | --- | --- |
 | `readonly` | 工作区安全读取、搜索、Git 查询 | 无 | 写文件、执行命令、联网 |
-| `confirm`（默认） | 安全读取、搜索、Git 查询 | 文件写入、命令执行、联网 | 危险操作 |
-| `agent` | 安全读取、项目内文件写入、预批准的验证命令 | 其他命令、联网、危险操作 | 未批准的危险操作 |
-| `auto` | 已配置策略内的读写和验证 | 策略外命令、联网、危险操作 | 明确禁用项 |
+| `confirm` | 安全读取、搜索、Git 查询、diff 提案 | 补丁应用、白名单验证命令 | 联网、任意命令、危险操作 |
+| `agent` | 安全读取、worktree 内文件写入、白名单验证命令 | 中断结果未知的命令重跑、最终交付 | 联网、任意命令、危险操作 |
+
+CLI 默认使用最小权限的 `readonly`；用户必须显式选择 `confirm` 或 `agent` 才会创建可写任务。`auto` 仍是保留名称，当前未开放。
 
 模式是执行策略，不是传给模型的一句提示。每次工具调用都由策略引擎根据工具类别、目标路径、命令风险和当前授权重新判定。
 
@@ -108,14 +111,14 @@ idle -> understanding -> awaiting_approval -> running -> verifying
 
 ### 4.2 工具能力分期
 
-首批内建工具：
+首批内建工具已接入同一 Runner 与策略层：
 
 | 类别 | 工具 | 约束 |
 | --- | --- | --- |
-| 项目理解 | 列目录、搜索文本、读取文件、Git 状态/diff | 只读、工作区与敏感文件策略 |
-| 修改 | 创建、替换、补丁应用、撤销本任务修改 | 必须生成 diff，写入策略检查 |
-| 验证 | 运行明确的测试、格式化、类型检查或构建命令 | 沙箱、超时、资源和输出限制 |
-| 会话 | 查看状态、取消、查看本轮 diff、恢复待确认操作 | 仅影响当前会话/任务 |
+| 项目理解 | 列目录、搜索文本、读取文件、Git 状态/diff | **已实现**；只读、工作区与敏感文件策略、输出上限 |
+| 修改 | 文本文件替换提案、审批应用、本任务最后编辑撤销 | 已实现；摘要并发保护、原子替换、diff 证据 |
+| 验证 | pytest/unittest、ruff、mypy、compileall | 已实现；Bubblewrap 断网、清空环境、超时、资源和输出限制 |
+| 会话 | SQLite 状态、同 task ID 恢复、diff、deliver/discard | 已实现；未知命令结果恢复后重新审批 |
 
 后续工具：MCP Server、Git 提交、网络检索、Issue/PR 系统和 IDE 集成。它们都必须经过同一权限和审计模型，不能成为安全旁路。
 
@@ -128,6 +131,8 @@ idle -> understanding -> awaiting_approval -> running -> verifying
 ## 5. 首期范围与验收
 
 ### 5.1 首期必须交付
+
+以下 P0 验收范围已经在 2026-08-04 的受控串行闭环中实现；并行 Join、多层规划和跨机器协作不在该结论内。
 
 - `codemate` 交互式 TTY 会话和 `codemate run` 单任务入口。
 - 工作区选择、明确显示的当前目录与会话 ID。
@@ -160,7 +165,8 @@ idle -> understanding -> awaiting_approval -> running -> verifying
 
 | 阶段 | 目标 | 关键增量 |
 | --- | --- | --- |
-| P0：交互代理内核 | 让 CLI 在本地项目完成受控编码闭环 | Agent Runner、内建工具、授权、diff、沙箱验证 |
+| P0a：只读代理内核（已实现） | 让 CLI 基于项目事实持续分析 | Agent Runner、只读工具、Graph/ReAct 上限、Token 预算、结构化结果 |
+| P0b：受控编码闭环（已实现） | 在不绕过授权与隔离的前提下产生变更 | 策略、diff 审批、补丁、沙箱验证、worktree、任务恢复 |
 | P1：可靠性与项目理解 | 提升复杂仓库任务的成功率和可恢复性 | 相关文件检索、任务持久化、恢复、Git 工作流、测试建议 |
 | P2：可扩展工具 | 扩展但不削弱安全边界 | MCP Client、工具白名单、远程服务授权、IDE 复用 |
 | P3：协作与自动化 | 支持团队与受控非交互任务 | 项目规则、审计、CI 模式、PR/Issue 集成 |

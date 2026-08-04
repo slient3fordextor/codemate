@@ -41,12 +41,13 @@ class ChatService:
         assistant_parts: list[str] = []
         try:
             messages = await self._build_messages(request, session_id)
+            budget = self._context_budget_planner.budget_for(request.max_tokens)
             model_request = ModelRequest(
                 messages=messages,
                 model=request.model or self._default_model,
                 stream=True,
                 temperature=request.temperature,
-                max_tokens=request.max_tokens,
+                max_tokens=budget.output_reserve,
                 metadata=request.metadata,
             )
         except (ContextBudgetExceededError, MemoryStoreError) as exc:
@@ -60,7 +61,6 @@ class ChatService:
             )
             return
 
-        budget = self._context_budget_planner.budget_for(request.max_tokens)
         counter = self._context_budget_planner.token_counter
         memory_messages = self._memory_messages_for_usage(request, messages)
         yield self._encode_sse(
@@ -69,9 +69,7 @@ class ChatService:
                 "counter_id": counter.counter_id,
                 "estimated": counter.estimated,
                 "input_tokens": counter.count_messages(messages),
-                "memory_tokens": counter.count_messages(memory_messages)
-                if memory_messages
-                else 0,
+                "memory_tokens": counter.count_messages(memory_messages) if memory_messages else 0,
                 "input_budget": budget.input_budget,
                 "output_reserve": budget.output_reserve,
                 "protocol_margin": budget.protocol_margin,
