@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.agent.worktree.models import (
     DeliveryResult,
+    RollbackResult,
     TaskWorktree,
     WorktreeChangeSet,
     WorktreeError,
@@ -86,6 +87,14 @@ class GitAdapter:
     def reverse_diff(self, path: Path, diff: bytes) -> None:
         if diff:
             self._run(path, ("apply", "--reverse", "--whitespace=nowarn", "-"), input_data=diff)
+
+    def check_reverse_diff(self, path: Path, diff: bytes) -> None:
+        if diff:
+            self._run(
+                path,
+                ("apply", "--check", "--reverse", "--whitespace=nowarn", "-"),
+                input_data=diff,
+            )
 
     def changed_paths_since(self, path: Path, base_commit: str) -> tuple[Path, ...]:
         tracked = self._git_bytes(
@@ -258,12 +267,19 @@ class WorktreeManager:
             raise WorktreeError("Task worktree HEAD no longer matches its recorded baseline")
         return task_worktree
 
-    def deliver(self, task_worktree: TaskWorktree, target_path: Path) -> DeliveryResult:
+    def deliver(
+        self,
+        task_worktree: TaskWorktree,
+        target_path: Path,
+        *,
+        expected_patch_digest: str,
+    ) -> DeliveryResult:
         self._assert_managed(task_worktree)
         target_root = self._git.repository_root(target_path)
         if target_root != self._repository_root:
             raise WorktreeError("Task changes can only be delivered to the source repository")
         changes = self._git.task_changes(task_worktree)
+        self._require_expected_patch(changes, expected_patch_digest)
         task_paths = self._git.task_changed_paths(task_worktree)
         target_paths = self._git.changed_paths_since(target_root, task_worktree.base_commit)
         conflicts = sorted(set(task_paths) & set(target_paths), key=GitAdapter._path_key)
@@ -309,11 +325,64 @@ class WorktreeManager:
             raise
         return DeliveryResult.create(task_worktree.task_id, target_root, task_paths)
 
+    def rollback(
+        self,
+        task_worktree: TaskWorktree,
+        target_path: Path,
+        *,
+        expected_patch_digest: str,
+    ) -> RollbackResult:
+        self._assert_managed(task_worktree)
+        target_root = self._git.repository_root(target_path)
+        if target_root != self._repository_root:
+            raise WorktreeError("Task changes can only be rolled back in the source repository")
+        changes = self._git.task_changes(task_worktree)
+        self._require_expected_patch(changes, expected_patch_digest)
+        task_paths = self._git.task_changed_paths(task_worktree)
+        empty_paths = tuple(
+            path
+            for path in changes.untracked_paths
+            if (task_worktree.path / path).stat().st_size == 0
+        )
+        for relative_path in empty_paths:
+            target = target_root / relative_path
+            if not target.is_file() or target.stat().st_size != 0:
+                raise WorktreeError(f"Delivered empty file changed after delivery: {relative_path}")
+
+        self._git.check_reverse_diff(target_root, changes.patch)
+        removed_empty: list[Path] = []
+        patch_reversed = False
+        try:
+            self._git.reverse_diff(target_root, changes.patch)
+            patch_reversed = True
+            for relative_path in empty_paths:
+                target = target_root / relative_path
+                if target.exists():
+                    target.unlink()
+                    removed_empty.append(target)
+        except Exception:
+            for target in removed_empty:
+                target.touch(exist_ok=True)
+            if patch_reversed:
+                self._git.apply_diff(target_root, changes.patch)
+            raise
+        return RollbackResult.create(task_worktree.task_id, target_root, task_paths)
+
     def discard(self, task_worktree: TaskWorktree, *, force: bool = False) -> None:
         self._assert_managed(task_worktree)
         if self._git.is_dirty(task_worktree.path) and not force:
             raise WorktreeError("Task worktree has unreviewed changes; force is required")
         self._remove_path(task_worktree.path, force=force)
+
+    @staticmethod
+    def _require_expected_patch(
+        changes: WorktreeChangeSet,
+        expected_patch_digest: str,
+    ) -> None:
+        if not expected_patch_digest:
+            raise WorktreeError("A validated patch digest is required")
+        if changes.patch_digest != expected_patch_digest:
+            raise WorktreeError("Task worktree changed after its last successful validation")
 
     def _run_worktree_add(self, task_worktree: TaskWorktree) -> None:
         self._worktree_root.mkdir(parents=True, exist_ok=True)

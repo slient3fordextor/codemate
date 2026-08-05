@@ -107,8 +107,11 @@ codemate run "分析 app 目录结构" \
 codemate run "修复解析器失败问题并运行相关测试" \
   --mode agent \
   --workspace . \
-  --task-id parser-fix
+  --task parser-fix \
+  --deliver
 ```
+
+`--deliver` 表示本次非交互运行完成并验证成功后，允许把确认过的 diff 写入主工作区。没有该参数时仍只保留任务供审查；交互模式则会展示最终 diff 并单独询问是否交付。
 
 任务在独立 worktree 中执行。完成后输出会包含：
 
@@ -119,17 +122,17 @@ codemate run "修复解析器失败问题并运行相关测试" \
 - `diff`：相对于任务基线的完整差异；
 - 模型轮数、工具调用数和 Token 用量。
 
-模型声称完成并不等于任务可交付。只要任务产生过编辑，最新编辑之后必须存在一次成功的沙箱验证，否则任务返回 `needs_evidence`。
+模型声称完成并不等于任务可交付。只要任务产生过编辑，最新编辑之后必须存在一次成功的沙箱验证，否则任务返回 `needs_evidence`。完成时还会保存已验证补丁的 SHA-256；交付前重新计算，如果 worktree 在验证后发生变化则拒绝写入主工作区。
 
 ### 恢复任务
 
-再次传入相同的 `--task-id` 会恢复已有 worktree，并从已持久化状态开始新一轮：
+再次传入相同的 `--task` 会恢复已有 worktree，并从已持久化状态开始新一轮：
 
 ```bash
 codemate run "继续修复并完成验证" \
   --mode agent \
   --workspace . \
-  --task-id parser-fix
+  --task parser-fix
 ```
 
 如果上次进程在命令运行期间中断，CodeMate 无法确定该命令是否已经产生副作用，因此默认阻止自动重跑。确认结果后可显式授权：
@@ -138,8 +141,8 @@ codemate run "继续修复并完成验证" \
 codemate run "继续任务" \
   --mode agent \
   --workspace . \
-  --task-id parser-fix \
-  --approve-interrupted-command
+  --task parser-fix \
+  --resume
 ```
 
 ### 审查与交付
@@ -151,6 +154,14 @@ codemate deliver parser-fix --workspace .
 ```
 
 交付前会检查原工作区自任务基线以来是否修改过相同文件，并执行 `git apply --check`。存在重叠变更时任务会停止，不会自动覆盖或解决冲突。
+
+交付后需要回退时执行：
+
+```bash
+codemate rollback parser-fix --workspace .
+```
+
+回退前会检查已验证补丁仍然一致，并执行反向补丁预检。如果主工作区中的相关内容在交付后又被修改，回退会停止，不覆盖后续修改。交付或回退在应用过程中失败时，会尝试恢复操作前状态。
 
 丢弃没有变更的任务：
 
@@ -296,5 +307,6 @@ tests/                   自动化测试
 
 更详细的 Agent 风险状态和修复证据见：
 
+- [CodeMate 全流程与 Agent 工程方法论](docs/engineering/zh/15-CodeMate全流程与Agent工程方法论.md)
 - [当前设计风险与整改计划](docs/cli/06-当前设计风险与整改计划.md)
 - [Agent CLI 问题复盘与工程方法论](docs/cli/07-AgentCLI问题复盘与工程方法论.md)

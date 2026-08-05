@@ -127,6 +127,10 @@ class ReadonlyToolExecutor:
     def completion_error() -> str | None:
         return None
 
+    @property
+    def validated_patch_digest(self) -> str | None:
+        return None
+
     def __init__(
         self,
         workspace_root: Path,

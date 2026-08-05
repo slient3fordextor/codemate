@@ -26,8 +26,9 @@ cp .env.example .env
 
 The CLI supports `readonly`, `confirm`, and `agent` policies. Writable tasks run
 in detached Git worktrees. Text edits are proposed as diffs, validation commands
-run without network in Bubblewrap, task state is checkpointed in SQLite, and no
-task change reaches the source checkout until an explicit `deliver` command.
+run without network in Bubblewrap, and task state is checkpointed in SQLite. A
+validated patch reaches the source checkout only after an interactive confirmation,
+an explicit `--deliver` option, or a separate `deliver` command.
 
 Start an interactive session:
 
@@ -44,9 +45,15 @@ codemate run "review the current changes" --mode readonly --workspace .
 Run a controlled writable task on Linux:
 
 ```bash
-codemate run "fix the failing parser" --mode agent --workspace . --task-id parser-fix
-codemate deliver parser-fix --workspace .
+codemate run "fix the failing parser" --mode agent --workspace . \
+  --task parser-fix --deliver
+codemate rollback parser-fix --workspace .
 ```
+
+At completion CodeMate records the validated patch digest. Delivery refuses a
+worktree changed after validation, checks for overlapping source changes, and can
+be reversed with `rollback`. Rollback stops if the delivered content has since
+changed, so it does not overwrite later user edits.
 
 Use `--mode confirm` in an interactive session to approve each patch application
 and command. Use `codemate discard TASK_ID --workspace . --force` to explicitly

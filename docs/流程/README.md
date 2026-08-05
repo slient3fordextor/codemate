@@ -34,3 +34,6 @@
 - “当前行为”以 `app/` 和 `app/static/` 代码为准。
 - “尚未实现”表示需求或配置存在，但当前请求链路没有对应执行代码。
 - `current_file` 仅用于构造模型上下文，不会把文件正文读入请求；`selected_text` 才会被直接附加到上下文中。
+
+需要把 Web 流程与 Agent CLI、沙箱、任务恢复和交付放在同一套工程方法中理解时，阅读
+[`CodeMate 全流程与 Agent 工程方法论`](../engineering/zh/15-CodeMate全流程与Agent工程方法论.md)。

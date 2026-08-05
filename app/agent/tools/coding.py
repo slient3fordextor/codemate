@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
 
@@ -73,6 +74,7 @@ class ControlledToolExecutor:
         sandbox: BubblewrapExecutor,
         mode: PermissionMode,
         *,
+        workspace_digest: Callable[[], str],
         workspace_dirty: bool = False,
         require_command_approval: bool = False,
     ) -> None:
@@ -83,8 +85,11 @@ class ControlledToolExecutor:
         self._sandbox = sandbox
         self.mode = mode
         self.definitions = readonly.definitions + self._write_definitions
+        self._workspace_digest = workspace_digest
+        self._initial_patch_digest = workspace_digest()
         self._workspace_revision = 1 if workspace_dirty else 0
         self._validated_revision: int | None = None
+        self._validated_patch_digest: str | None = None
         self._require_command_approval = require_command_approval
 
     @property
@@ -128,7 +133,19 @@ class ControlledToolExecutor:
     def completion_error(self) -> str | None:
         if self._workspace_revision and self._validated_revision != self._workspace_revision:
             return "Latest task worktree edits do not have successful command evidence"
+        current_patch_digest = self._workspace_digest()
+        if (
+            current_patch_digest != self._initial_patch_digest
+            and self._validated_patch_digest != current_patch_digest
+        ):
+            return "Task worktree changed after its latest successful command evidence"
         return None
+
+    @property
+    def validated_patch_digest(self) -> str | None:
+        if self.completion_error() is not None:
+            return None
+        return self._workspace_digest()
 
     def execute(
         self,
@@ -183,6 +200,7 @@ class ControlledToolExecutor:
                 artifact = self._sandbox.execute(self._argv(arguments))
                 if artifact.passed:
                     self._validated_revision = self._workspace_revision
+                    self._validated_patch_digest = self._workspace_digest()
                 content = artifact.stdout
                 if artifact.stderr:
                     content += ("\n" if content else "") + artifact.stderr

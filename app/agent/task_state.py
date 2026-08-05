@@ -17,6 +17,7 @@ class TaskState(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     DELIVERED = "delivered"
+    ROLLED_BACK = "rolled_back"
     RETAINED = "retained"
     DISCARDED = "discarded"
 
@@ -38,7 +39,8 @@ _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     TaskState.COMPLETED: frozenset({TaskState.DELIVERED, TaskState.RETAINED, TaskState.DISCARDED}),
     TaskState.FAILED: frozenset({TaskState.ACTIVE, TaskState.RETAINED, TaskState.DISCARDED}),
     TaskState.CANCELLED: frozenset({TaskState.RETAINED, TaskState.DISCARDED}),
-    TaskState.DELIVERED: frozenset({TaskState.DISCARDED}),
+    TaskState.DELIVERED: frozenset({TaskState.ROLLED_BACK, TaskState.DISCARDED}),
+    TaskState.ROLLED_BACK: frozenset({TaskState.ACTIVE, TaskState.DELIVERED, TaskState.DISCARDED}),
     TaskState.RETAINED: frozenset({TaskState.ACTIVE, TaskState.DELIVERED, TaskState.DISCARDED}),
     TaskState.DISCARDED: frozenset(),
 }
@@ -55,6 +57,7 @@ class TaskRecord:
     state: TaskState = TaskState.CREATED
     graph_id: str | None = None
     error: str | None = None
+    validated_patch_digest: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -101,3 +104,16 @@ class TaskRecord:
         if not graph_id:
             raise TaskStateError("Task graph id is required")
         return replace(self, graph_id=graph_id, updated_at=datetime.now(UTC))
+
+    def record_validation(self, patch_digest: str) -> "TaskRecord":
+        if self.state is not TaskState.ACTIVE:
+            raise TaskStateError("Validation can only be recorded for an active task")
+        if len(patch_digest) != 64 or any(
+            character not in "0123456789abcdef" for character in patch_digest
+        ):
+            raise TaskStateError("Validated patch digest must be a SHA-256 hex digest")
+        return replace(
+            self,
+            validated_patch_digest=patch_digest,
+            updated_at=datetime.now(UTC),
+        )

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 
@@ -54,6 +55,10 @@ class WorktreeChangeSet:
     def dirty(self) -> bool:
         return bool(self.tracked_patch or self.untracked_paths)
 
+    @property
+    def patch_digest(self) -> str:
+        return sha256(self.patch).hexdigest()
+
 
 @dataclass(frozen=True)
 class DeliveryResult:
@@ -69,4 +74,21 @@ class DeliveryResult:
         target_path: Path,
         changed_paths: tuple[Path, ...],
     ) -> "DeliveryResult":
+        return cls(task_id, target_path, changed_paths, datetime.now(UTC))
+
+
+@dataclass(frozen=True)
+class RollbackResult:
+    task_id: str
+    target_path: Path
+    changed_paths: tuple[Path, ...]
+    rolled_back_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        task_id: str,
+        target_path: Path,
+        changed_paths: tuple[Path, ...],
+    ) -> "RollbackResult":
         return cls(task_id, target_path, changed_paths, datetime.now(UTC))

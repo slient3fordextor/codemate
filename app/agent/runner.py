@@ -117,6 +117,9 @@ class AgentToolExecutor(Protocol):
 
     def completion_error(self) -> str | None: ...
 
+    @property
+    def validated_patch_digest(self) -> str | None: ...
+
 
 class ReadonlyAgentRunner:
     """Runs a bounded model/tool loop under the supplied tool policy."""

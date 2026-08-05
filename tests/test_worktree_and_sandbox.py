@@ -65,8 +65,13 @@ def test_task_delivery_applies_reviewed_changes_and_empty_files(tmp_path: Path) 
     task = manager.create("delivery")
     (task.path / "app.py").write_text("value = 2\n", encoding="utf-8")
     (task.path / "empty.txt").touch()
+    patch_digest = manager.changes(task).patch_digest
 
-    result = manager.deliver(task, repository)
+    result = manager.deliver(
+        task,
+        repository,
+        expected_patch_digest=patch_digest,
+    )
 
     assert result.changed_paths == (Path("app.py"), Path("empty.txt"))
     assert (repository / "app.py").read_text(encoding="utf-8") == "value = 2\n"
@@ -80,9 +85,74 @@ def test_task_delivery_rejects_overlapping_source_changes(tmp_path: Path) -> Non
     task = manager.create("conflict")
     (task.path / "app.py").write_text("value = 2\n", encoding="utf-8")
     (repository / "app.py").write_text("value = 3\n", encoding="utf-8")
+    patch_digest = manager.changes(task).patch_digest
 
     with pytest.raises(WorktreeError, match="overlapping"):
-        manager.deliver(task, repository)
+        manager.deliver(
+            task,
+            repository,
+            expected_patch_digest=patch_digest,
+        )
+
+    assert (repository / "app.py").read_text(encoding="utf-8") == "value = 3\n"
+    manager.discard(task, force=True)
+
+
+def test_task_delivery_rejects_changes_after_validation(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    manager = WorktreeManager(repository, tmp_path / "tasks")
+    task = manager.create("stale-validation")
+    (task.path / "app.py").write_text("value = 2\n", encoding="utf-8")
+    validated_digest = manager.changes(task).patch_digest
+    (task.path / "app.py").write_text("value = 3\n", encoding="utf-8")
+
+    with pytest.raises(WorktreeError, match="last successful validation"):
+        manager.deliver(
+            task,
+            repository,
+            expected_patch_digest=validated_digest,
+        )
+
+    assert (repository / "app.py").read_text(encoding="utf-8") == "value = 1\n"
+    manager.discard(task, force=True)
+
+
+def test_delivered_task_can_be_rolled_back(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    manager = WorktreeManager(repository, tmp_path / "tasks")
+    task = manager.create("rollback")
+    (task.path / "app.py").write_text("value = 2\n", encoding="utf-8")
+    (task.path / "empty.txt").touch()
+    patch_digest = manager.changes(task).patch_digest
+    manager.deliver(task, repository, expected_patch_digest=patch_digest)
+
+    result = manager.rollback(
+        task,
+        repository,
+        expected_patch_digest=patch_digest,
+    )
+
+    assert result.changed_paths == (Path("app.py"), Path("empty.txt"))
+    assert (repository / "app.py").read_text(encoding="utf-8") == "value = 1\n"
+    assert not (repository / "empty.txt").exists()
+    manager.discard(task, force=True)
+
+
+def test_task_rollback_rejects_overlapping_changes_after_delivery(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    manager = WorktreeManager(repository, tmp_path / "tasks")
+    task = manager.create("rollback-conflict")
+    (task.path / "app.py").write_text("value = 2\n", encoding="utf-8")
+    patch_digest = manager.changes(task).patch_digest
+    manager.deliver(task, repository, expected_patch_digest=patch_digest)
+    (repository / "app.py").write_text("value = 3\n", encoding="utf-8")
+
+    with pytest.raises(WorktreeError):
+        manager.rollback(
+            task,
+            repository,
+            expected_patch_digest=patch_digest,
+        )
 
     assert (repository / "app.py").read_text(encoding="utf-8") == "value = 3\n"
     manager.discard(task, force=True)

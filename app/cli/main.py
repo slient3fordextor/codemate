@@ -4,6 +4,7 @@ import hashlib
 import json
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -57,17 +58,44 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument("--workspace", type=Path, default=Path.cwd())
     run_parser.add_argument("--json", action="store_true", dest="json_output")
-    run_parser.add_argument("--task-id", help="stable task id for writable runs")
+    run_parser.add_argument("--task", dest="task_id", help="stable writable task")
+    run_parser.add_argument(
+        "--task-id",
+        dest="task_id",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
+    run_parser.add_argument(
+        "--deliver",
+        action="store_true",
+        help="deliver the successfully validated task diff to the source workspace",
+    )
+    run_parser.add_argument(
+        "--resume",
+        dest="approve_interrupted_command",
+        action="store_true",
+        help="allow retry after an interrupted command",
+    )
     run_parser.add_argument(
         "--approve-interrupted-command",
+        dest="approve_interrupted_command",
         action="store_true",
-        help="allow commands after an interrupted command whose outcome is unknown",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
 
     deliver_parser = subparsers.add_parser("deliver", help="apply a reviewed task diff")
     deliver_parser.add_argument("task_id")
     deliver_parser.add_argument("--workspace", type=Path, default=Path.cwd())
     deliver_parser.add_argument("--json", action="store_true", dest="json_output")
+
+    rollback_parser = subparsers.add_parser(
+        "rollback",
+        help="reverse a previously delivered task diff",
+    )
+    rollback_parser.add_argument("task_id")
+    rollback_parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    rollback_parser.add_argument("--json", action="store_true", dest="json_output")
 
     discard_parser = subparsers.add_parser("discard", help="discard a retained task worktree")
     discard_parser.add_argument("task_id")
@@ -93,10 +121,13 @@ def main(argv: list[str] | None = None) -> int:
                 interactive=False,
                 task_id=args.task_id,
                 approve_interrupted_command=args.approve_interrupted_command,
+                deliver_requested=args.deliver,
             )
         )
     if args.command == "deliver":
         return _deliver_task(args.task_id, args.workspace, json_output=args.json_output)
+    if args.command == "rollback":
+        return _rollback_task(args.task_id, args.workspace, json_output=args.json_output)
     if args.command == "discard":
         return _discard_task(args.task_id, args.workspace, force=args.force)
     if args.command is not None:
@@ -123,6 +154,7 @@ async def _interactive(workspace: Path, mode: PermissionMode) -> int:
             mode=mode,
             json_output=False,
             interactive=True,
+            deliver_requested=False,
         )
 
 
@@ -135,6 +167,7 @@ async def _run_once(
     interactive: bool,
     task_id: str | None = None,
     approve_interrupted_command: bool = False,
+    deliver_requested: bool = False,
 ) -> int:
     settings = get_settings()
     resolved_workspace = workspace.expanduser().resolve()
@@ -143,6 +176,9 @@ async def _run_once(
     task_worktree: TaskWorktree | None = None
     worktree_manager: WorktreeManager | None = None
     interrupted_command = False
+    if deliver_requested and mode is PermissionMode.READONLY:
+        print("--deliver requires confirm or agent mode", file=sys.stderr)
+        return 1
     try:
         tool_workspace = resolved_workspace
         if mode is not PermissionMode.READONLY:
@@ -185,8 +221,12 @@ async def _run_once(
         if mode is PermissionMode.READONLY:
             tools: ReadonlyToolExecutor | ControlledToolExecutor = readonly_tools
         else:
-            if task_worktree is None:
+            if task_worktree is None or worktree_manager is None:
                 raise RuntimeError("Writable task worktree was not initialized")
+
+            def workspace_digest() -> str:
+                return worktree_manager.changes(task_worktree).patch_digest
+
             temporary_root = Path(
                 tempfile.mkdtemp(prefix=f"codemate-{task_worktree.task_id}-")
             ).resolve()
@@ -196,11 +236,8 @@ async def _run_once(
                 WorkspaceEditor(policy, max_file_bytes=settings.workspace.max_file_bytes),
                 BubblewrapExecutor(policy),
                 mode,
-                workspace_dirty=(
-                    worktree_manager.changes(task_worktree).dirty
-                    if worktree_manager is not None
-                    else False
-                ),
+                workspace_digest=workspace_digest,
+                workspace_dirty=worktree_manager.changes(task_worktree).dirty,
                 require_command_approval=(interrupted_command and not approve_interrupted_command),
             )
             if task_record is None or task_store is None:
@@ -209,7 +246,11 @@ async def _run_once(
                 task_record = task_record.transition(TaskState.ACTIVE)
                 task_store.save_task(task_record)
     except (ValueError, WorktreeError, SandboxPolicyError) as exc:
-        if task_record is not None and task_store is not None:
+        if (
+            task_record is not None
+            and task_store is not None
+            and task_record.state in {TaskState.PREPARING, TaskState.ACTIVE}
+        ):
             task_record = task_record.transition(TaskState.FAILED, error=str(exc))
             task_store.save_task(task_record)
         print(str(exc), file=sys.stderr)
@@ -252,6 +293,15 @@ async def _run_once(
         answer = await asyncio.to_thread(input, "Approve this action once? [y/N] ")
         return answer.strip().casefold() in {"y", "yes"}
 
+    async def approve_delivery(task: TaskRecord, diff: str) -> bool:
+        print(f"\n[delivery] verified task {task.task_id}", file=sys.stderr)
+        print(diff or "[no file changes]", file=sys.stderr)
+        answer = await asyncio.to_thread(
+            input,
+            "Deliver these validated changes to the source workspace? [y/N] ",
+        )
+        return answer.strip().casefold() in {"y", "yes"}
+
     def checkpoint_graph(graph: Any) -> None:
         nonlocal task_record
         if task_store is None or task_record is None:
@@ -269,13 +319,33 @@ async def _run_once(
         checkpoint=checkpoint_graph if task_store is not None else None,
     )
     extra: dict[str, Any] = {}
+    delivery_error: str | None = None
+    delivered = False
     if task_record is not None and task_store is not None and task_worktree is not None:
         task_store.append_graph(result.graph)
+        if worktree_manager is None:
+            raise RuntimeError("Writable task worktree manager was not initialized")
+        changes = worktree_manager.changes(task_worktree)
+        changed_paths = worktree_manager.changed_paths(task_worktree)
         if result.status is AgentRunStatus.COMPLETED:
-            task_record = task_record.transition(
-                TaskState.COMPLETED,
-                graph_id=result.graph.graph_id,
-            )
+            validated_patch_digest = tools.validated_patch_digest
+            if validated_patch_digest != changes.patch_digest:
+                validation_error = "Task worktree changed after successful validation"
+                result = replace(
+                    result,
+                    status=AgentRunStatus.NEEDS_EVIDENCE,
+                    error=validation_error,
+                )
+                task_record = task_record.transition(
+                    TaskState.FAILED,
+                    graph_id=result.graph.graph_id,
+                    error=validation_error,
+                )
+            else:
+                task_record = task_record.record_validation(validated_patch_digest).transition(
+                    TaskState.COMPLETED,
+                    graph_id=result.graph.graph_id,
+                )
         elif result.status is AgentRunStatus.WAITING_APPROVAL:
             task_record = task_record.transition(
                 TaskState.WAITING_APPROVAL,
@@ -288,26 +358,63 @@ async def _run_once(
                 error=result.error,
             )
         task_store.save_task(task_record)
-        changes = worktree_manager.changes(task_worktree) if worktree_manager else None
-        changed_paths = worktree_manager.changed_paths(task_worktree) if worktree_manager else ()
+
+        should_deliver = deliver_requested
+        if (
+            result.status is AgentRunStatus.COMPLETED
+            and interactive
+            and changes.dirty
+            and not should_deliver
+        ):
+            should_deliver = await approve_delivery(
+                task_record,
+                changes.patch.decode("utf-8", errors="replace"),
+            )
+        if task_record.state is TaskState.COMPLETED and should_deliver:
+            try:
+                worktree_manager.deliver(
+                    task_worktree,
+                    resolved_workspace,
+                    expected_patch_digest=changes.patch_digest,
+                )
+            except WorktreeError as exc:
+                delivery_error = str(exc)
+            else:
+                task_record = task_record.transition(TaskState.DELIVERED)
+                task_store.save_task(task_record)
+                delivered = True
+
         extra = {
             "task_id": task_record.task_id,
             "task_state": task_record.state.value,
             "worktree": str(task_worktree.path),
             "changed_paths": [path.as_posix() for path in changed_paths],
-            "diff": changes.patch.decode("utf-8", errors="replace") if changes else "",
+            "diff": changes.patch.decode("utf-8", errors="replace"),
+            "validated_patch_digest": task_record.validated_patch_digest,
+            "delivered": delivered,
         }
+        if delivery_error is not None:
+            extra["delivery_error"] = delivery_error
     if json_output:
         print(json.dumps({**_result_payload(result), **extra}, ensure_ascii=False))
     elif result.status is AgentRunStatus.COMPLETED:
         print(result.answer)
-        if task_record is not None:
+        if delivered and task_record is not None:
+            print(
+                f"Delivered verified task {task_record.task_id}. "
+                f"Rollback: codemate rollback {task_record.task_id} "
+                f"--workspace {resolved_workspace}"
+            )
+        elif task_record is not None:
             print(
                 f"Task {task_record.task_id} retained for review. "
                 f"Run: codemate deliver {task_record.task_id} --workspace {resolved_workspace}"
             )
     else:
         print(result.error or result.status.value, file=sys.stderr)
+    if delivery_error is not None:
+        print(delivery_error, file=sys.stderr)
+        return 1
     return 0 if result.status is AgentRunStatus.COMPLETED else 2
 
 
@@ -316,11 +423,21 @@ def _deliver_task(task_id: str, workspace: Path, *, json_output: bool) -> int:
     try:
         store = SQLiteAgentStore(default_agent_state_path(resolved_workspace))
         record = store.load_task(task_id)
-        if record.state not in {TaskState.COMPLETED, TaskState.RETAINED}:
+        if record.state not in {
+            TaskState.COMPLETED,
+            TaskState.RETAINED,
+            TaskState.ROLLED_BACK,
+        }:
             raise WorktreeError(f"Task is not ready for delivery: {record.state.value}")
+        if record.validated_patch_digest is None:
+            raise WorktreeError("Task has no successful validation evidence")
         manager = WorktreeManager(resolved_workspace, _worktree_root(resolved_workspace))
         task_worktree = manager.recover(_task_worktree(record))
-        delivery = manager.deliver(task_worktree, resolved_workspace)
+        delivery = manager.deliver(
+            task_worktree,
+            resolved_workspace,
+            expected_patch_digest=record.validated_patch_digest,
+        )
         record = record.transition(TaskState.DELIVERED)
         store.save_task(record)
     except (PersistenceError, ValueError, WorktreeError) as exc:
@@ -332,6 +449,36 @@ def _deliver_task(task_id: str, workspace: Path, *, json_output: bool) -> int:
         "changed_paths": [path.as_posix() for path in delivery.changed_paths],
     }
     print(json.dumps(payload, ensure_ascii=False) if json_output else f"Delivered task {task_id}")
+    return 0
+
+
+def _rollback_task(task_id: str, workspace: Path, *, json_output: bool) -> int:
+    resolved_workspace = workspace.expanduser().resolve()
+    try:
+        store = SQLiteAgentStore(default_agent_state_path(resolved_workspace))
+        record = store.load_task(task_id)
+        if record.state is not TaskState.DELIVERED:
+            raise WorktreeError(f"Task is not delivered: {record.state.value}")
+        if record.validated_patch_digest is None:
+            raise WorktreeError("Task has no validated patch digest")
+        manager = WorktreeManager(resolved_workspace, _worktree_root(resolved_workspace))
+        task_worktree = manager.recover(_task_worktree(record))
+        rollback = manager.rollback(
+            task_worktree,
+            resolved_workspace,
+            expected_patch_digest=record.validated_patch_digest,
+        )
+        record = record.transition(TaskState.ROLLED_BACK)
+        store.save_task(record)
+    except (PersistenceError, ValueError, WorktreeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    payload = {
+        "task_id": rollback.task_id,
+        "state": record.state.value,
+        "changed_paths": [path.as_posix() for path in rollback.changed_paths],
+    }
+    print(json.dumps(payload, ensure_ascii=False) if json_output else f"Rolled back task {task_id}")
     return 0
 
 
@@ -397,6 +544,7 @@ def _prepare_resumed_task(
         TaskState.PREPARING,
         TaskState.WAITING_APPROVAL,
         TaskState.FAILED,
+        TaskState.ROLLED_BACK,
         TaskState.RETAINED,
     }:
         record = record.transition(TaskState.ACTIVE)

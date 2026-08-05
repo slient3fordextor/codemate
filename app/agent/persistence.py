@@ -19,7 +19,7 @@ class PersistenceError(RuntimeError):
 class SQLiteAgentStore:
     """Transactional, append-only storage for graph events and loop checkpoints."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser().resolve()
@@ -129,8 +129,9 @@ class SQLiteAgentStore:
                 """
                 INSERT INTO tasks (
                     task_id, objective, repository_root, worktree_path, base_commit,
-                    base_branch, state, graph_id, error, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    base_branch, state, graph_id, error, validated_patch_digest,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET
                     objective = excluded.objective,
                     repository_root = excluded.repository_root,
@@ -140,6 +141,7 @@ class SQLiteAgentStore:
                     state = excluded.state,
                     graph_id = excluded.graph_id,
                     error = excluded.error,
+                    validated_patch_digest = excluded.validated_patch_digest,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -152,6 +154,7 @@ class SQLiteAgentStore:
                     task.state.value,
                     task.graph_id,
                     task.error,
+                    task.validated_patch_digest,
                     task.created_at.isoformat(),
                     task.updated_at.isoformat(),
                 ),
@@ -162,7 +165,8 @@ class SQLiteAgentStore:
             row = connection.execute(
                 """
                 SELECT task_id, objective, repository_root, worktree_path, base_commit,
-                       base_branch, state, graph_id, error, created_at, updated_at
+                       base_branch, state, graph_id, error, validated_patch_digest,
+                       created_at, updated_at
                 FROM tasks WHERE task_id = ?
                 """,
                 (task_id,),
@@ -180,8 +184,9 @@ class SQLiteAgentStore:
                 state=TaskState(row[6]),
                 graph_id=row[7],
                 error=row[8],
-                created_at=datetime.fromisoformat(row[9]),
-                updated_at=datetime.fromisoformat(row[10]),
+                validated_patch_digest=row[9],
+                created_at=datetime.fromisoformat(row[10]),
+                updated_at=datetime.fromisoformat(row[11]),
             )
         except (TypeError, ValueError) as exc:
             raise PersistenceError(f"Invalid persisted task: {task_id}") from exc
@@ -190,12 +195,13 @@ class SQLiteAgentStore:
         query = "SELECT task_id FROM tasks"
         parameters: tuple[str, ...] = ()
         if not include_terminal:
-            query += " WHERE state IN (?, ?, ?, ?, ?)"
+            query += " WHERE state IN (?, ?, ?, ?, ?, ?)"
             parameters = (
                 TaskState.CREATED.value,
                 TaskState.PREPARING.value,
                 TaskState.ACTIVE.value,
                 TaskState.WAITING_APPROVAL.value,
+                TaskState.ROLLED_BACK.value,
                 TaskState.RETAINED.value,
             )
         query += " ORDER BY updated_at DESC, task_id"
@@ -249,11 +255,14 @@ class SQLiteAgentStore:
                     state TEXT NOT NULL,
                     graph_id TEXT,
                     error TEXT,
+                    validated_patch_digest TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
             )
+            if current == 1:
+                connection.execute("ALTER TABLE tasks ADD COLUMN validated_patch_digest TEXT")
             connection.execute(f"PRAGMA user_version = {self.SCHEMA_VERSION}")
 
     @contextmanager
