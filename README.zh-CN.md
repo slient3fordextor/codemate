@@ -365,3 +365,13 @@ tests/                   自动化测试
 - [CodeMate 全流程与 Agent 工程方法论](docs/engineering/zh/15-CodeMate全流程与Agent工程方法论.md)
 - [当前设计风险与整改计划](docs/cli/06-当前设计风险与整改计划.md)
 - [Agent CLI 问题复盘与工程方法论](docs/cli/07-AgentCLI问题复盘与工程方法论.md)
+
+### 客户端皮肤
+
+左侧「个性皮肤」可一键切换「梦幻公主粉」和「星空玻璃」，无需刷新或重启。
+两套皮肤共用布局，覆盖对话、输入框、代码块和模型设置弹窗。
+浏览器通过本地存储记住选择；Linux 客户端保存到
+`$XDG_CONFIG_HOME/codemate/theme.json`（默认 `~/.config/codemate/theme.json`），
+不受每次启动随机端口的影响。
+
+皮肤交互回归检查：`node --test tests/frontend/theme.test.cjs`。

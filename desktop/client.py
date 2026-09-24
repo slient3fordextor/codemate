@@ -2,6 +2,7 @@
 """Linux desktop client for CodeMate, backed by the local FastAPI app."""
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
@@ -63,12 +64,45 @@ class CodeMateClient(Gtk.Window):
         settings = WebKit2.WebsiteDataManager.new_ephemeral()
         context = WebKit2.WebContext.new_with_website_data_manager(settings)
         self._webview = WebKit2.WebView.new_with_context(context)
+        manager = self._webview.get_user_content_manager()
+        config_root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+        self._theme_path = config_root / "codemate" / "theme.json"
+        theme = "princess"
+        try:
+            saved = json.loads(self._theme_path.read_text())
+            if saved in ("princess", "starry"):
+                theme = saved
+        except (OSError, ValueError):
+            pass
+        manager.register_script_message_handler("codemateTheme")
+        manager.connect("script-message-received::codemateTheme", self._save_theme)
+        manager.add_script(WebKit2.UserScript.new(
+            "window.codemateTheme = " + json.dumps(theme) + ";",
+            WebKit2.UserContentInjectedFrames.TOP_FRAME,
+            WebKit2.UserScriptInjectionTime.START,
+            None, None,
+        ))
         self._webview.set_hexpand(True)
         self._webview.set_vexpand(True)
         self._webview.connect("load-failed", self._load_failed)
         self.add(self._webview)
         self.show_all()
         self._webview.load_uri(url)
+
+    def _save_theme(self, _manager: object, result: object) -> None:
+        # Accept only a skin identifier; never arbitrary paths or native commands.
+        if self._webview.get_uri() != self._url and not (
+            self._webview.get_uri() or ""
+        ).startswith(self._url + "/"):
+            return
+        theme = result.get_js_value().to_string()
+        if theme not in ("princess", "starry"):
+            return
+        try:
+            self._theme_path.parent.mkdir(parents=True, exist_ok=True)
+            self._theme_path.write_text(json.dumps(theme))
+        except OSError as exc:
+            print(f"无法保存皮肤偏好: {exc}", file=sys.stderr)
 
     def _load_failed(self, _view: object, _event: object, error: object) -> bool:
         print(f"CodeMate 页面加载失败: {error}", file=sys.stderr)
