@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -7,7 +8,7 @@ from app.main import create_app
 
 def test_model_config_can_be_saved_to_env_file(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     client = TestClient(create_app())
@@ -52,7 +53,7 @@ def test_model_config_can_be_saved_to_env_file(
 
 def test_model_config_preserves_existing_api_key(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text(
@@ -90,7 +91,10 @@ def test_model_config_preserves_existing_api_key(
     assert 'MODEL_NOTE="preserved key"' in env_text
 
 
-def test_model_config_can_clear_api_key(tmp_path: Path, monkeypatch) -> None:
+def test_model_config_can_clear_api_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("MODEL_API_KEY=existing-secret\n", encoding="utf-8")
     client = TestClient(create_app())

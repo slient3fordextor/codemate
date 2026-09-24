@@ -140,9 +140,7 @@ class DeterministicMemoryCompressor:
 
     def _sentences(self, text: str) -> tuple[str, ...]:
         return tuple(
-            sentence
-            for raw in _SENTENCE_SPLIT.split(text)
-            if (sentence := self._normalize(raw))
+            sentence for raw in _SENTENCE_SPLIT.split(text) if (sentence := self._normalize(raw))
         )
 
     def _fit_lines(

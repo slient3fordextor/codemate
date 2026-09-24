@@ -22,6 +22,24 @@ def test_chat_completion_streams_mock_response() -> None:
     assert "event: message.done" in body
 
 
+def test_chat_completion_returns_json_when_stream_disabled() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/chat/completions",
+        json={"message": "解释当前架构", "stream": False},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    body = response.json()
+    assert body["session_id"].startswith("ses_")
+    assert body["model"] == "mock-model"
+    assert body["content"] == "Mock response: 解释当前架构"
+    assert body["finish_reason"] == "stop"
+    assert body["usage"] == {"input_tokens": 1, "output_tokens": 3}
+
+
 def test_chat_completion_accepts_message_protocol_context() -> None:
     client = TestClient(create_app())
 

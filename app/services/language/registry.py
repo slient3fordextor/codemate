@@ -22,4 +22,3 @@ def build_default_language_registry() -> LanguageRegistry:
             TypeScriptLanguageAdapter(),
         )
     )
-

@@ -157,8 +157,7 @@ def test_react_budget_requires_progress_then_explicit_approval() -> None:
     assert budget.next_decision(10, has_new_evidence=True) is ReActDecision.CONTINUE
     assert budget.next_decision(15, has_new_evidence=True) is ReActDecision.WAIT_FOR_APPROVAL
     assert (
-        budget.next_decision(15, has_new_evidence=True, approved_round=16)
-        is ReActDecision.CONTINUE
+        budget.next_decision(15, has_new_evidence=True, approved_round=16) is ReActDecision.CONTINUE
     )
 
 
@@ -266,11 +265,7 @@ def test_evaluation_contract_separates_hard_gates_from_soft_preferences() -> Non
 
 def test_hard_pass_without_registered_evidence_cannot_complete() -> None:
     contract = EvaluationContract(
-        (
-            EvaluationCriterion(
-                "tests", CriterionKind.HARD, evidence_kinds=(EvidenceKind.COMMAND,)
-            ),
-        )
+        (EvaluationCriterion("tests", CriterionKind.HARD, evidence_kinds=(EvidenceKind.COMMAND,)),)
     )
 
     result = contract.evaluate(
@@ -344,19 +339,11 @@ def test_minimum_soft_quality_can_request_bounded_improvement() -> None:
 
 def test_evidence_from_wrong_dimension_cannot_satisfy_hard_criterion() -> None:
     contract = EvaluationContract(
-        (
-            EvaluationCriterion(
-                "tests", CriterionKind.HARD, evidence_kinds=(EvidenceKind.COMMAND,)
-            ),
-        )
+        (EvaluationCriterion("tests", CriterionKind.HARD, evidence_kinds=(EvidenceKind.COMMAND,)),)
     )
     result = contract.evaluate(
         {"tests": CriterionAssessment(CriterionState.PASS, ("approval-1",))},
-        {
-            "approval-1": EvaluationEvidence(
-                "approval-1", EvidenceKind.APPROVAL, "approval-node"
-            )
-        },
+        {"approval-1": EvaluationEvidence("approval-1", EvidenceKind.APPROVAL, "approval-node")},
     )
 
     assert result.verdict is EvaluationVerdict.NEEDS_EVIDENCE

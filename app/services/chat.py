@@ -1,10 +1,10 @@
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
 from app.adapters.models.base import ModelAdapter, ModelProviderError, ModelRequest
-from app.schemas.chat import ChatCompletionRequest, ChatMessage
+from app.schemas.chat import ChatCompletionRequest, ChatCompletionResponse, ChatMessage
 from app.services.context_budget import ContextBudgetExceededError, ContextBudgetPlanner
 from app.services.language import LanguageContextService
 from app.services.persistent_memory import MemoryStoreError
@@ -36,6 +36,7 @@ class ChatService:
         self,
         request: ChatCompletionRequest,
         request_id: str | None = None,
+        is_disconnected: Callable[[], Awaitable[bool]] | None = None,
     ) -> AsyncIterator[str]:
         session_id = request.session_id or self._new_session_id()
         assistant_parts: list[str] = []
@@ -78,6 +79,8 @@ class ChatService:
 
         try:
             async for chunk in self._model_adapter.stream_chat(model_request):
+                if is_disconnected is not None and await is_disconnected():
+                    return
                 if chunk.type == "message.delta" and chunk.content:
                     assistant_parts.append(chunk.content)
                 yield self._encode_sse(
@@ -117,6 +120,55 @@ class ChatService:
                     "request_id": request_id,
                 },
             )
+
+    async def complete_completion(
+        self,
+        request: ChatCompletionRequest,
+        request_id: str | None = None,
+    ) -> ChatCompletionResponse:
+        """Collect the same model stream and expose a non-streaming response."""
+        session_id = request.session_id or self._new_session_id()
+        messages = await self._build_messages(request, session_id)
+        budget = self._context_budget_planner.budget_for(request.max_tokens)
+        model_request = ModelRequest(
+            messages=messages,
+            model=request.model or self._default_model,
+            stream=True,
+            temperature=request.temperature,
+            max_tokens=budget.output_reserve,
+            metadata=request.metadata,
+        )
+        content_parts: list[str] = []
+        usage: dict[str, int] = {}
+        finish_reason: str | None = None
+        model = model_request.model or self._default_model
+        try:
+            async for chunk in self._model_adapter.stream_chat(model_request):
+                if chunk.type == "message.start" and chunk.raw:
+                    raw_model = chunk.raw.get("model")
+                    if isinstance(raw_model, str) and raw_model:
+                        model = raw_model
+                elif chunk.type == "message.delta" and chunk.content:
+                    content_parts.append(chunk.content)
+                elif chunk.type == "usage.update":
+                    if chunk.input_tokens is not None:
+                        usage["input_tokens"] = chunk.input_tokens
+                    if chunk.output_tokens is not None:
+                        usage["output_tokens"] = chunk.output_tokens
+                elif chunk.type == "message.done":
+                    finish_reason = chunk.finish_reason
+        except ModelProviderError:
+            raise
+
+        content = "".join(content_parts).strip()
+        await self._remember_turn(request, session_id, content, request_id)
+        return ChatCompletionResponse(
+            session_id=session_id,
+            model=model,
+            content=content,
+            finish_reason=finish_reason,
+            usage=usage or None,
+        )
 
     async def _build_messages(
         self,

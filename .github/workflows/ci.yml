@@ -21,7 +21,9 @@ jobs:
         run: python -m pip install -c requirements.lock -e ".[dev]"
       - name: Lint
         run: ruff check .
+      - name: Format check
+        run: ruff format --check .
       - name: Type check
-        run: mypy app
+        run: mypy app tests
       - name: Test
         run: pytest -q

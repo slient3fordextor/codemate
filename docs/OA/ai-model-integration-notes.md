@@ -207,7 +207,7 @@ stream=True
 - `stream=true`：返回 SSE。
 - `stream=false`：返回普通 JSON，如 `ChatCompletionResponse`。
 
-### 2. `model_max_retries` 配置存在但未实现
+### 2. `model_max_retries` 已实现，仍需扩大兼容测试
 
 配置文件中已有：
 
@@ -215,9 +215,9 @@ stream=True
 model_max_retries: int = 2
 ```
 
-但 `OpenAICompatibleModelAdapter` 当前没有使用该配置做重试。
+`OpenAICompatibleModelAdapter` 和 `AnthropicClaudeModelAdapter` 已在“尚未输出任何内容”时，针对网络错误、429 和 5xx 按该配置进行有限重试。
 
-建议后续在以下错误场景中增加有限重试：
+后续应继续覆盖以下场景：
 
 - 网络临时失败。
 - provider 返回 429。

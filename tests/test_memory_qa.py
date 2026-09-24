@@ -249,9 +249,7 @@ async def test_v1_database_is_migrated_without_losing_memory(tmp_path: Path) -> 
 
     with sqlite3.connect(database_path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        turn_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(memory_turns)")
-        }
+        turn_columns = {row[1] for row in connection.execute("PRAGMA table_info(memory_turns)")}
         chunk_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(memory_summary_chunks)")
         }

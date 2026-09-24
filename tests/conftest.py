@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 
@@ -8,7 +9,7 @@ from app.core.config import get_settings
 @pytest.fixture(autouse=True)
 def clear_settings_cache(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
+    tmp_path: Path,
 ) -> Generator[None]:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv(

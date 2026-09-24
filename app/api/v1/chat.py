@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.adapters.models import build_model_adapter
 from app.core.config import get_settings
@@ -13,11 +13,11 @@ from app.services.token_counter import build_token_counter
 router = APIRouter(prefix="/chat")
 
 
-@router.post("/completions")
+@router.post("/completions", response_model=None)
 async def create_chat_completion(
     request_body: ChatCompletionRequest,
     request: Request,
-) -> StreamingResponse:
+) -> StreamingResponse | JSONResponse:
     settings = get_settings()
     model_name = request_body.model or settings.model.name
     service = ChatService(
@@ -43,7 +43,18 @@ async def create_chat_completion(
     )
     request_id = getattr(request.state, "request_id", None)
 
+    if not request_body.stream:
+        response = await service.complete_completion(
+            request_body,
+            request_id=str(request_id) if request_id else None,
+        )
+        return JSONResponse(content=response.model_dump(exclude_none=True))
+
     return StreamingResponse(
-        service.stream_completion(request_body, request_id=str(request_id) if request_id else None),
+        service.stream_completion(
+            request_body,
+            request_id=str(request_id) if request_id else None,
+            is_disconnected=request.is_disconnected,
+        ),
         media_type="text/event-stream",
     )

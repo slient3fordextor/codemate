@@ -10,6 +10,7 @@ from app.services.persistent_memory import MemoryStoreError
 
 logger = logging.getLogger("codemate.errors")
 
+
 # 自定义异常类
 class AppError(Exception):
     def __init__(
