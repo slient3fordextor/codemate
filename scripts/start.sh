@@ -42,6 +42,11 @@ if [[ ! -f .env ]]; then
   echo "[CodeMate] 已创建 .env，可按需修改模型配置"
 fi
 
+if [[ "${CODEMATE_PREPARE_ONLY:-false}" == "true" ]]; then
+  echo "[CodeMate] 运行环境准备完成"
+  exit 0
+fi
+
 echo "[CodeMate] 启动地址: http://${HOST}:${PORT}"
 echo "[CodeMate] 健康检查: http://${HOST}:${PORT}/health"
 

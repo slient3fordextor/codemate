@@ -76,6 +76,28 @@ CODEMATE_RELOAD=true make start
 远程绑定时仍需在 `.env` 中显式配置 `ALLOW_REMOTE_API=true` 和强 Bearer
 Token；没有配置时 API 会继续拒绝远程请求。
 
+### Linux 桌面客户端
+
+Linux 桌面客户端使用 GTK 和 WebKitGTK 承载同一套本地 Web 工作区。首次使用前安装系统运行库：
+
+```bash
+sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.0
+```
+
+启动客户端窗口：
+
+```bash
+make desktop
+```
+
+客户端会自动准备 Python 运行环境、分配本地端口、启动 FastAPI，并在关闭窗口时回收后端进程。也可以把它安装到应用菜单：
+
+```bash
+./scripts/install-desktop.sh
+```
+
+安装后可以从系统应用菜单启动 CodeMate。客户端默认只绑定 `127.0.0.1`，不会把本地控制接口暴露到局域网。
+
 创建本地配置文件：
 
 ```bash

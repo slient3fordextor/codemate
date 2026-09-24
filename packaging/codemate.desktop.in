@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=CodeMate
+Comment=Local AI coding workspace
+Exec=@PROJECT_ROOT@/scripts/desktop.sh
+Path=@PROJECT_ROOT@
+Terminal=false
+Categories=Development;IDE;
+StartupNotify=true
