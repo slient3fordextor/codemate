@@ -32,47 +32,27 @@
             <span class="nav-icon" aria-hidden="true">◈</span>
             当前对话
           </a>
-          <button class="sidebar-link" id="modelSettingsButton" type="button">
-            <span class="nav-icon" aria-hidden="true">⚙</span>
-            设置
-          </button>
         </nav>
         <div class="task-history">
           <div class="task-history-head">
             <p class="sidebar-label">最近任务</p>
-            <span class="task-count">1</span>
+          <span class="task-count" id="taskCount">1</span>
           </div>
-          <button class="task-item active" type="button">
-            <span class="task-status" aria-hidden="true"></span>
-            <span>
-              <strong>当前对话</strong>
-              <small>刚刚开始</small>
-            </span>
-          </button>
+          <div id="taskHistoryList">
+            <button class="task-item active" type="button">
+              <span class="task-status" aria-hidden="true"></span>
+              <span><strong>当前对话</strong><small>刚刚开始</small></span>
+            </button>
+          </div>
         </div>
         <div class="sidebar-footer">
-          <span class="connection-dot" aria-hidden="true"></span>
-          <span>本地工作区</span>
-          <span class="sidebar-version">v0.1</span>
+          <button class="sidebar-settings" id="modelSettingsButton" type="button" aria-label="打开设置" title="设置">
+            <span aria-hidden="true">⚙</span>
+          </button>
         </div>
       </aside>
 
-      <section class="workspace" aria-label="主要工作区">
-        <header class="topbar">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true">CM</span>
-          <div>
-            <h1>CodeMate</h1>
-            <p>本地 CLI 开发对话</p>
-          </div>
-        </div>
-        <div class="session-meta" aria-label="会话状态">
-          <span>开发助手</span>
-          <span>本地工作区</span>
-        </div>
-        <div class="status" id="connectionStatus">就绪</div>
-        </header>
-
+      <section class="workspace is-empty" aria-label="主要工作区">
       <dialog class="model-panel" id="modelPanel" aria-label="模型配置">
         <div class="model-modal">
           <div class="model-sidebar">
@@ -94,6 +74,14 @@
                 <button type="button" data-theme-choice="princess" aria-pressed="true"><span class="theme-swatch princess" aria-hidden="true"></span>梦幻公主粉</button>
                 <button type="button" data-theme-choice="starry" aria-pressed="false"><span class="theme-swatch starry" aria-hidden="true"></span>星空玻璃</button>
               </div>
+            </section>
+            <section class="archive-panel" aria-label="归档任务">
+              <div class="archive-panel-head">
+                <p class="sidebar-label">归档任务</p>
+                <span class="task-count" id="archivedCount">0</span>
+              </div>
+              <div class="archive-list" id="archiveList"></div>
+              <p class="archive-empty" id="archiveEmpty">暂无归档任务</p>
             </section>
           </div>
           <form class="model-form" id="modelConfigForm">
@@ -167,50 +155,50 @@
         </div>
       </dialog>
 
-        <section class="brief-panel" aria-label="当前工作台">
-        <div class="brief-copy">
-          <p class="eyebrow">workspace</p>
-          <p>当前文件、选中片段和终端输出会组成一次可追踪的开发上下文。</p>
-        </div>
-        <div class="brief-flow" aria-label="工作流">
-          <span><b>01</b> context</span>
-          <span><b>02</b> command</span>
-          <span><b>03</b> verify</span>
-        </div>
-        </section>
+      <div class="task-context-menu" id="taskContextMenu" role="menu" hidden>
+        <button type="button" role="menuitem" data-context-action="rename">重命名</button>
+        <button type="button" role="menuitem" data-context-action="archive">归档任务</button>
+        <button type="button" role="menuitem" data-context-action="delete">删除任务</button>
+      </div>
 
-        <section class="messages" id="messages" aria-live="polite" aria-label="消息">
-        <article class="message assistant">
-          <div class="avatar">AI</div>
-          <div class="bubble">
-            <p>把你要完成的 CLI 开发任务、终端报错或测试输出发给我。我会优先给出可复制命令、原因和下一步验证方式。</p>
-          </div>
-        </article>
-        </section>
+        <div class="welcome" id="welcome">
+          <p class="welcome-brand">CodeMate</p>
+          <h1>今天，我们一起完成什么？</h1>
+          <p>从一个想法、一段代码，或一个待解决的问题开始。</p>
+        </div>
+        <section class="messages" id="messages" aria-live="polite" aria-label="消息"></section>
 
         <form class="composer" id="chatForm" aria-label="发送消息">
+        <div class="project-picker" aria-label="当前项目">
+          <span class="project-folder" aria-hidden="true">□</span>
+          <span>开发对话</span>
+
+        </div>
         <label class="message-label" for="messageInput">消息</label>
-        <textarea
-          id="messageInput"
-          rows="4"
-          placeholder="描述任务，或粘贴 pytest / uvicorn / npm / git 报错..."
-          required
-        ></textarea>
+        <textarea id="messageInput" rows="4" placeholder="描述任务，或粘贴代码与报错信息…" required></textarea>
         <div class="composer-actions">
+
           <select
             class="composer-mode"
             id="operationModeSelect"
             aria-label="选择操作模式"
             title="当前 Web 页面仅提供对话；受控 Agent 执行请使用 codemate CLI"
           >
-            <option value="chat">对话</option>
+            <option value="chat">对话模式</option>
           </select>
           <select class="composer-model" id="composerModelSelect" aria-label="选择模型"></select>
+
           <p class="send-hint">Ctrl/⌘ + Enter</p>
-          <button type="button" class="secondary icon-button" id="newSessionButton" aria-label="新会话">+</button>
-          <button type="submit" class="icon-button" id="sendButton" aria-label="发送">➤</button>
+          <button type="button" class="secondary icon-button" id="newSessionButton" hidden aria-label="新会话">＋</button>
+          <button type="submit" class="icon-button send-button" id="sendButton" aria-label="发送">↑</button>
         </div>
         </form>
+        <nav class="quick-prompts" aria-label="常用任务">
+          <button type="button" data-prompt="总结本周项目进展，并列出下一步任务">◷ 周报总结</button>
+          <button type="button" data-prompt="检查当前项目的错误并给出修复建议">☼ 报错修复</button>
+          <button type="button" data-prompt="帮我制作一份项目介绍 PPT 的大纲">▣ PPT 制作</button>
+          <button type="button" data-prompt="帮我把以下需求拆分为实现步骤和验证清单">◔ 拆解任务</button>
+        </nav>
       </section>
     </main>
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Linux desktop client for CodeMate, backed by the local FastAPI app."""
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,6 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("WebKit2", "4.0")
 from gi.repository import Gtk, WebKit2  # noqa: E402
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PREPARE_SCRIPT = ROOT / "scripts" / "start.sh"
 
@@ -31,12 +31,16 @@ def choose_port() -> int:
 
 def prepare_runtime() -> Path:
     venv_python = ROOT / ".venv" / "bin" / "python"
-    if not venv_python.exists() or subprocess.run(
-        [str(venv_python), "-m", "pip", "--version"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    ).returncode != 0:
+    if (
+        not venv_python.exists()
+        or subprocess.run(
+            [str(venv_python), "-m", "pip", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        != 0
+    ):
         env = os.environ.copy()
         env["CODEMATE_PREPARE_ONLY"] = "true"
         subprocess.run([str(PREPARE_SCRIPT)], cwd=ROOT, env=env, check=True)
@@ -76,12 +80,15 @@ class CodeMateClient(Gtk.Window):
             pass
         manager.register_script_message_handler("codemateTheme")
         manager.connect("script-message-received::codemateTheme", self._save_theme)
-        manager.add_script(WebKit2.UserScript.new(
-            "window.codemateTheme = " + json.dumps(theme) + ";",
-            WebKit2.UserContentInjectedFrames.TOP_FRAME,
-            WebKit2.UserScriptInjectionTime.START,
-            None, None,
-        ))
+        manager.add_script(
+            WebKit2.UserScript.new(
+                "window.codemateTheme = " + json.dumps(theme) + ";",
+                WebKit2.UserContentInjectedFrames.TOP_FRAME,
+                WebKit2.UserScriptInjectionTime.START,
+                None,
+                None,
+            )
+        )
         self._webview.set_hexpand(True)
         self._webview.set_vexpand(True)
         self._webview.connect("load-failed", self._load_failed)
@@ -91,9 +98,9 @@ class CodeMateClient(Gtk.Window):
 
     def _save_theme(self, _manager: object, result: object) -> None:
         # Accept only a skin identifier; never arbitrary paths or native commands.
-        if self._webview.get_uri() != self._url and not (
-            self._webview.get_uri() or ""
-        ).startswith(self._url + "/"):
+        if self._webview.get_uri() != self._url and not (self._webview.get_uri() or "").startswith(
+            self._url + "/"
+        ):
             return
         theme = result.get_js_value().to_string()
         if theme not in ("princess", "starry"):
