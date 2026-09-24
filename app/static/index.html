@@ -3,23 +3,23 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CodeMate CLI Chat</title>
+    <title>CodeMate</title>
     <meta
       name="description"
-      content="CodeMate 本地 CLI 开发对话界面，用于分析任务、命令输出和终端报错。"
+      content="CodeMate 本地 AI 工作台。"
     />
     <script src="/static/theme.js"></script>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <a class="skip-link" href="#messageInput">跳到输入框</a>
-    <main class="shell" aria-label="CodeMate CLI Chat">
+    <main class="shell" aria-label="CodeMate AI 工作台">
       <aside class="app-sidebar" aria-label="主导航">
         <div class="sidebar-brand">
           <span class="brand-mark" aria-hidden="true">CM</span>
           <div>
             <strong>CodeMate</strong>
-            <span>developer workspace</span>
+            <span>local AI workspace</span>
           </div>
         </div>
         <button class="sidebar-new-task" id="newSessionSidebarButton" type="button">
@@ -53,45 +53,51 @@
       </aside>
 
       <section class="workspace is-empty" aria-label="主要工作区">
-      <dialog class="model-panel" id="modelPanel" aria-label="模型配置">
+      <dialog class="model-panel" id="modelPanel" aria-label="设置">
         <div class="model-modal">
           <div class="model-sidebar">
-            <div>
-              <p class="eyebrow">models</p>
-              <h2>模型列表</h2>
-            </div>
-          <input
-            class="model-search"
-              id="modelSearchInput"
-              type="search"
-              placeholder="搜索模型或供应商"
-              autocomplete="off"
-            />
-            <div class="model-list" id="modelPresetList" aria-label="模型列表"></div>
-            <section class="theme-picker" aria-label="切换皮肤">
-              <p class="sidebar-label">外观</p>
-              <div class="theme-options">
-                <button type="button" data-theme-choice="princess" aria-pressed="true"><span class="theme-swatch princess" aria-hidden="true"></span>梦幻公主粉</button>
-                <button type="button" data-theme-choice="starry" aria-pressed="false"><span class="theme-swatch starry" aria-hidden="true"></span>星空玻璃</button>
-              </div>
-            </section>
-            <section class="archive-panel" aria-label="归档任务">
-              <div class="archive-panel-head">
-                <p class="sidebar-label">归档任务</p>
-                <span class="task-count" id="archivedCount">0</span>
-              </div>
-              <div class="archive-list" id="archiveList"></div>
-              <p class="archive-empty" id="archiveEmpty">暂无归档任务</p>
-            </section>
+            <button type="button" class="settings-back" data-settings-section="overview">← 返回工作区</button>
+            <nav class="settings-nav" aria-label="设置导航">
+              <p class="sidebar-label">基础设置</p>
+              <button type="button" class="settings-nav-item active" data-settings-section="overview">⌘ <span>常规</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="appearance">◌ <span>外观</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="models">◇ <span>模型设置</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="browser">◉ <span>浏览器控制</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="computer">▣ <span>电脑控制</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="shortcuts">⌨ <span>键盘快捷键</span></button>
+              <p class="sidebar-label settings-group-label">Agent 能力</p>
+              <button type="button" class="settings-nav-item" data-settings-section="memory">♧ <span>记忆</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="subagents">♙ <span>子智能体</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="plugins">⊞ <span>插件</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="mcp">♧ <span>MCP 服务器</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="skills">✣ <span>技能</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="commands">›_ <span>命令</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="hooks">⚓ <span>钩子</span></button>
+            </nav>
+            <div class="settings-account"><span class="account-mark">H</span><strong>本地用户</strong><small>Lite</small><span class="settings-account-gear">⚙</span></div>
           </div>
           <form class="model-form" id="modelConfigForm">
             <div class="model-form-head">
               <div>
-                <p class="eyebrow">config</p>
-                <h2>连接参数</h2>
+                <p class="eyebrow" id="settingsEyebrow">overview</p>
+                <h2 id="settingsTitle">使用统计</h2>
               </div>
               <button type="button" class="secondary model-close" id="modelCloseButton">关闭</button>
             </div>
+            <section class="settings-overview" id="settingsOverview">
+              <div class="settings-tabs"><button type="button" class="active">应用用量</button><button type="button">个人套餐</button></div>
+              <div class="usage-summary"><div><strong>0</strong><span>累计 Token 数</span></div><div><strong>0</strong><span>峰值 Token 数</span></div><div><strong>0 分钟</strong><span>最长聊天时长</span></div><div><strong>0 天</strong><span>当前连续天数</span></div><div><strong>0 天</strong><span>最长连续天数</span></div></div>
+              <div class="usage-card"><div class="usage-card-head"><strong>Token 活动</strong><span>每日　每周　累计</span></div><div class="usage-grid" aria-label="Token 活动示意图"></div><small>10月　　 11月　　 12月　　 1月　　 2月　　 3月　　 4月　　 5月　　 6月　　 7月　　 8月　　 9月</small></div>
+              <h3>时间范围 <span>近 7 日　近 30 日</span></h3><div class="usage-card usage-chart"><strong>每日 Token 趋势图</strong><div class="chart-line"></div></div>
+            </section>
+            <section class="settings-options" id="settingsOptions">
+              <section class="theme-picker settings-option" data-settings-panel="appearance" aria-label="切换皮肤">
+                <h3>外观</h3><div class="theme-options"><button type="button" data-theme-choice="princess" aria-pressed="true"><span class="theme-swatch princess" aria-hidden="true"></span>梦幻公主粉</button><button type="button" data-theme-choice="starry" aria-pressed="false"><span class="theme-swatch starry" aria-hidden="true"></span>星空玻璃</button></div>
+              </section>
+              <section class="computer-settings settings-option" data-settings-panel="computer" aria-label="电脑控制"><h3>电脑控制</h3><label class="inline-check"><input id="computerMode" type="checkbox" />允许 Agent 控制本机</label><p class="archive-empty">Linux X11 · 每次动作确认。当前支持窗口、鼠标和键盘。</p></section>
+              <section class="archive-panel settings-option" data-settings-panel="archive" aria-label="归档任务"><h3>归档任务 <span id="archivedCount">0</span></h3><div class="archive-list" id="archiveList"></div><p class="archive-empty" id="archiveEmpty">暂无归档任务</p></section>
+            </section>
+            <section class="model-presets settings-option" data-settings-panel="models"><h3>模型列表</h3><input class="model-search" id="modelSearchInput" type="search" placeholder="搜索模型或供应商" autocomplete="off" /><div class="model-list" id="modelPresetList" aria-label="模型列表"></div></section>
             <label>
               Provider
               <select id="modelProvider">
@@ -169,23 +175,10 @@
         <section class="messages" id="messages" aria-live="polite" aria-label="消息"></section>
 
         <form class="composer" id="chatForm" aria-label="发送消息">
-        <div class="project-picker" aria-label="当前项目">
-          <span class="project-folder" aria-hidden="true">□</span>
-          <span>开发对话</span>
-
-        </div>
         <label class="message-label" for="messageInput">消息</label>
         <textarea id="messageInput" rows="4" placeholder="描述任务，或粘贴代码与报错信息…" required></textarea>
         <div class="composer-actions">
 
-          <select
-            class="composer-mode"
-            id="operationModeSelect"
-            aria-label="选择操作模式"
-            title="当前 Web 页面仅提供对话；受控 Agent 执行请使用 codemate CLI"
-          >
-            <option value="chat">对话模式</option>
-          </select>
           <select class="composer-model" id="composerModelSelect" aria-label="选择模型"></select>
 
           <p class="send-hint">Ctrl/⌘ + Enter</p>

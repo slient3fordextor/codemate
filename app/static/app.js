@@ -1,3 +1,5 @@
+import { runComputerTask } from "/static/computer.js";
+
 const form = document.querySelector("#chatForm");
 const input = document.querySelector("#messageInput");
 const messages = document.querySelector("#messages");
@@ -23,7 +25,6 @@ const modelRetriesInput = document.querySelector("#modelRetries");
 const modelContextWindowInput = document.querySelector("#modelContextWindow");
 const clearApiKeyInput = document.querySelector("#clearApiKey");
 const modelKeyState = document.querySelector("#modelKeyState");
-const operationModeSelect = document.querySelector("#operationModeSelect");
 const composerModelSelect = document.querySelector("#composerModelSelect");
 const quickPrompts = document.querySelectorAll("[data-prompt]");
 const modelSettingsButton = document.querySelector("#modelSettingsButton");
@@ -34,9 +35,15 @@ const archiveList = document.querySelector("#archiveList");
 const archivedCount = document.querySelector("#archivedCount");
 const archiveEmpty = document.querySelector("#archiveEmpty");
 const taskContextMenu = document.querySelector("#taskContextMenu");
+const settingsNavItems = document.querySelectorAll("[data-settings-section]");
+const settingsOverview = document.querySelector("#settingsOverview");
+const settingsOptions = document.querySelector("#settingsOptions");
+const settingsTitle = document.querySelector("#settingsTitle");
+const settingsEyebrow = document.querySelector("#settingsEyebrow");
+const settingsForm = document.querySelector("#modelConfigForm");
+const settingsModelPresets = document.querySelector(".model-presets");
 
 let sessionId = localStorage.getItem("codemate.sessionId") || "";
-let operationMode = "chat";
 let activeController = null;
 let modelConfigLoaded = false;
 let taskHistory = readTaskHistory();
@@ -109,14 +116,6 @@ const providerMarks = {
   zhipu: "ZP",
 };
 
-const operationModes = [
-  {
-    value: "chat",
-    label: "对话",
-    description: "不执行文件或命令操作",
-  },
-];
-
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = input.value.trim();
@@ -127,7 +126,19 @@ form.addEventListener("submit", async (event) => {
   appendMessage("user", message);
   rememberTask(message);
   input.value = "";
-  await sendMessage(message);
+  if (document.querySelector("#computerMode")?.checked) {
+    activeController = new AbortController();
+    setBusy(true);
+    const assistant = appendMessage("assistant", "正在连接桌面 Agent…");
+    try {
+      await runComputerTask(message, assistant.bubble, activeController.signal);
+    } finally {
+      activeController = null;
+      setBusy(false);
+    }
+  } else {
+    await sendMessage(message);
+  }
 });
 
 sendButton.addEventListener("click", () => {
@@ -191,8 +202,19 @@ renderModelPresets();
 renderComposerModels();
 renderTaskHistory();
 renderArchivedTasks();
-operationModeSelect.value = operationMode;
 void loadModelConfig();
+
+setSettingsSection("overview");
+settingsNavItems.forEach((item) => {
+  item.addEventListener("click", () => {
+    const section = item.dataset.settingsSection || "overview";
+    if (section === "overview" && item.classList.contains("settings-back")) {
+      closeModelPanel();
+      return;
+    }
+    setSettingsSection(section);
+  });
+});
 
 taskContextMenu?.addEventListener("click", (event) => {
   const action = event.target.closest("[data-context-action]")?.dataset.contextAction;
@@ -212,13 +234,42 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") hideTaskContextMenu();
 });
 
+function setSettingsSection(section) {
+  const titles = {
+    appearance: ["appearance", "外观"],
+    browser: ["browser", "浏览器控制"],
+    commands: ["commands", "命令"],
+    computer: ["computer", "电脑控制"],
+    hooks: ["hooks", "钩子"],
+    mcp: ["mcp", "MCP 服务器"],
+    memory: ["memory", "记忆"],
+    models: ["models", "模型设置"],
+    overview: ["overview", "使用统计"],
+    plugins: ["plugins", "插件"],
+    shortcuts: ["shortcuts", "键盘快捷键"],
+    skills: ["skills", "技能"],
+    subagents: ["subagents", "子智能体"],
+  };
+  const [eyebrow, title] = titles[section] || titles.overview;
+  settingsEyebrow.textContent = eyebrow;
+  settingsTitle.textContent = title;
+  settingsOverview.hidden = section !== "overview";
+  settingsOptions.hidden = section === "overview" || section === "models";
+  settingsModelPresets.hidden = section !== "models";
+  for (const option of settingsOptions.querySelectorAll("[data-settings-panel]")) {
+    option.hidden = option.dataset.settingsPanel !== section;
+  }
+  for (const field of settingsForm.querySelectorAll(":scope > label, :scope > .model-actions")) {
+    field.hidden = section !== "models";
+  }
+  settingsForm.classList.toggle("settings-model-active", section === "models");
+  for (const item of document.querySelectorAll(".settings-nav-item")) {
+    item.classList.toggle("active", item.dataset.settingsSection === section);
+  }
+}
+
 modelSearchInput.addEventListener("input", () => {
   renderModelPresets(modelSearchInput.value);
-});
-
-operationModeSelect.addEventListener("change", () => {
-  operationMode = operationModeSelect.value;
-  localStorage.setItem("codemate.operationMode", operationMode);
 });
 
 composerModelSelect.addEventListener("change", () => {
@@ -248,9 +299,6 @@ async function sendMessage(message) {
     current_file: currentFileInput?.value.trim() || null,
     selected_text: selectedTextInput?.value.trim() || null,
     stream: true,
-    metadata: {
-      operation_mode: operationMode,
-    },
   };
   const temperature = parseOptionalNumber(modelTemperatureInput.value);
   const maxTokens = parseOptionalInteger(modelMaxTokensInput.value);

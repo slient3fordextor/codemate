@@ -10,5 +10,5 @@ def test_web_index_serves_cli_chat_page() -> None:
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "CodeMate CLI Chat" in response.text
+    assert "CodeMate" in response.text
     assert "/static/app.js" in response.text
