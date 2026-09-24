@@ -25,6 +25,8 @@ const clearApiKeyInput = document.querySelector("#clearApiKey");
 const modelKeyState = document.querySelector("#modelKeyState");
 const operationModeSelect = document.querySelector("#operationModeSelect");
 const composerModelSelect = document.querySelector("#composerModelSelect");
+const modelSettingsButton = document.querySelector("#modelSettingsButton");
+const newSessionSidebarButton = document.querySelector("#newSessionSidebarButton");
 
 let sessionId = localStorage.getItem("codemate.sessionId") || "";
 let operationMode = "chat";
@@ -84,16 +86,16 @@ const modelPresets = [
 ];
 
 const providerMarks = {
-  anthropic: "◆",
-  baichuan: "百",
-  claude: "◆",
-  deepseek: "🐳",
-  mock: "◎",
-  moonshot: "月",
-  ollama: "⌂",
-  openai_compatible: "◌",
-  qwen: "通",
-  zhipu: "智",
+  anthropic: "AN",
+  baichuan: "BC",
+  claude: "CL",
+  deepseek: "DS",
+  mock: "MK",
+  moonshot: "MS",
+  ollama: "OL",
+  openai_compatible: "AI",
+  qwen: "QW",
+  zhipu: "ZP",
 };
 
 const operationModes = [
@@ -124,6 +126,17 @@ newSessionButton.addEventListener("click", () => {
     "assistant",
     "已开始新会话。可以继续发送 CLI 任务、命令或终端报错。"
   );
+});
+
+newSessionSidebarButton?.addEventListener("click", () => {
+  newSessionButton.click();
+});
+
+modelSettingsButton?.addEventListener("click", () => {
+  openModelPanel();
+  if (!modelConfigLoaded) {
+    void loadModelConfig();
+  }
 });
 
 modelCloseButton.addEventListener("click", () => {

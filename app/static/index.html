@@ -13,7 +13,55 @@
   <body>
     <a class="skip-link" href="#messageInput">跳到输入框</a>
     <main class="shell" aria-label="CodeMate CLI Chat">
-      <header class="topbar">
+      <aside class="app-sidebar" aria-label="主导航">
+        <div class="sidebar-brand">
+          <span class="brand-mark" aria-hidden="true">CM</span>
+          <div>
+            <strong>CodeMate</strong>
+            <span>developer workspace</span>
+          </div>
+        </div>
+        <button class="sidebar-new-task" id="newSessionSidebarButton" type="button">
+          <span aria-hidden="true">+</span>
+          新建任务
+        </button>
+        <nav class="sidebar-nav" aria-label="工作区导航">
+          <p class="sidebar-label">工作区</p>
+          <a class="sidebar-link active" href="#messages" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">◈</span>
+            当前对话
+          </a>
+          <a class="sidebar-link" href="#contextPanel">
+            <span class="nav-icon" aria-hidden="true">⌘</span>
+            项目上下文
+          </a>
+          <button class="sidebar-link" id="modelSettingsButton" type="button">
+            <span class="nav-icon" aria-hidden="true">⚙</span>
+            模型设置
+          </button>
+        </nav>
+        <div class="task-history">
+          <div class="task-history-head">
+            <p class="sidebar-label">最近任务</p>
+            <span class="task-count">1</span>
+          </div>
+          <button class="task-item active" type="button">
+            <span class="task-status" aria-hidden="true"></span>
+            <span>
+              <strong>当前对话</strong>
+              <small>刚刚开始</small>
+            </span>
+          </button>
+        </div>
+        <div class="sidebar-footer">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span>本地工作区</span>
+          <span class="sidebar-version">v0.1</span>
+        </div>
+      </aside>
+
+      <section class="workspace" aria-label="主要工作区">
+        <header class="topbar">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true">CM</span>
           <div>
@@ -26,7 +74,7 @@
           <span>SSE stream</span>
         </div>
         <div class="status" id="connectionStatus">就绪</div>
-      </header>
+        </header>
 
       <dialog class="model-panel" id="modelPanel" aria-label="模型配置">
         <div class="model-modal">
@@ -115,7 +163,7 @@
         </div>
       </dialog>
 
-      <section class="brief-panel" aria-label="当前工作台">
+        <section class="brief-panel" aria-label="当前工作台">
         <div class="brief-copy">
           <p class="eyebrow">workspace</p>
           <p>当前文件、选中片段和终端输出会组成一次可追踪的开发上下文。</p>
@@ -125,9 +173,9 @@
           <span><b>02</b> command</span>
           <span><b>03</b> verify</span>
         </div>
-      </section>
+        </section>
 
-      <section class="context-panel" aria-label="上下文">
+        <section class="context-panel" id="contextPanel" aria-label="上下文">
         <label>
           当前文件
           <input id="currentFile" type="text" placeholder="例如 app/main.py" autocomplete="off" />
@@ -136,18 +184,18 @@
           选中文本
           <textarea id="selectedText" rows="2" placeholder="可粘贴当前选中的代码片段"></textarea>
         </label>
-      </section>
+        </section>
 
-      <section class="messages" id="messages" aria-live="polite" aria-label="消息">
+        <section class="messages" id="messages" aria-live="polite" aria-label="消息">
         <article class="message assistant">
           <div class="avatar">AI</div>
           <div class="bubble">
             <p>把你要完成的 CLI 开发任务、终端报错或测试输出发给我。我会优先给出可复制命令、原因和下一步验证方式。</p>
           </div>
         </article>
-      </section>
+        </section>
 
-      <form class="composer" id="chatForm" aria-label="发送消息">
+        <form class="composer" id="chatForm" aria-label="发送消息">
         <label class="message-label" for="messageInput">消息</label>
         <textarea
           id="messageInput"
@@ -169,7 +217,8 @@
           <button type="button" class="secondary icon-button" id="newSessionButton" aria-label="新会话">+</button>
           <button type="submit" class="icon-button" id="sendButton" aria-label="发送">➤</button>
         </div>
-      </form>
+        </form>
+      </section>
     </main>
 
     <script src="/static/app.js?v=20260707-restore-main-selects" type="module"></script>
