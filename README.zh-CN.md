@@ -81,7 +81,7 @@ Token；没有配置时 API 会继续拒绝远程请求。
 Linux 桌面客户端使用 GTK 和 WebKitGTK 承载同一套本地 Web 工作区。首次使用前安装系统运行库：
 
 ```bash
-sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.0
+sudo apt install python3-gi python3-venv gir1.2-gtk-3.0 gir1.2-webkit2-4.0
 ```
 
 启动客户端窗口：
