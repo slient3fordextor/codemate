@@ -32,13 +32,9 @@
             <span class="nav-icon" aria-hidden="true">◈</span>
             当前对话
           </a>
-          <a class="sidebar-link" href="#contextPanel">
-            <span class="nav-icon" aria-hidden="true">⌘</span>
-            项目上下文
-          </a>
           <button class="sidebar-link" id="modelSettingsButton" type="button">
             <span class="nav-icon" aria-hidden="true">⚙</span>
-            模型设置
+            设置
           </button>
         </nav>
         <div class="task-history">
@@ -54,13 +50,6 @@
             </span>
           </button>
         </div>
-        <section class="theme-picker" aria-label="切换皮肤">
-          <p class="sidebar-label">个性皮肤</p>
-          <div class="theme-options">
-            <button type="button" data-theme-choice="princess" aria-pressed="true"><span class="theme-swatch princess" aria-hidden="true"></span>梦幻公主粉</button>
-            <button type="button" data-theme-choice="starry" aria-pressed="false"><span class="theme-swatch starry" aria-hidden="true"></span>星空玻璃</button>
-          </div>
-        </section>
         <div class="sidebar-footer">
           <span class="connection-dot" aria-hidden="true"></span>
           <span>本地工作区</span>
@@ -91,14 +80,21 @@
               <p class="eyebrow">models</p>
               <h2>模型列表</h2>
             </div>
-            <input
-              class="model-search"
+          <input
+            class="model-search"
               id="modelSearchInput"
               type="search"
               placeholder="搜索模型或供应商"
               autocomplete="off"
             />
             <div class="model-list" id="modelPresetList" aria-label="模型列表"></div>
+            <section class="theme-picker" aria-label="切换皮肤">
+              <p class="sidebar-label">外观</p>
+              <div class="theme-options">
+                <button type="button" data-theme-choice="princess" aria-pressed="true"><span class="theme-swatch princess" aria-hidden="true"></span>梦幻公主粉</button>
+                <button type="button" data-theme-choice="starry" aria-pressed="false"><span class="theme-swatch starry" aria-hidden="true"></span>星空玻璃</button>
+              </div>
+            </section>
           </div>
           <form class="model-form" id="modelConfigForm">
             <div class="model-form-head">
@@ -181,17 +177,6 @@
           <span><b>02</b> command</span>
           <span><b>03</b> verify</span>
         </div>
-        </section>
-
-        <section class="context-panel" id="contextPanel" aria-label="上下文">
-        <label>
-          当前文件
-          <input id="currentFile" type="text" placeholder="例如 app/main.py" autocomplete="off" />
-        </label>
-        <label>
-          选中文本
-          <textarea id="selectedText" rows="2" placeholder="可粘贴当前选中的代码片段"></textarea>
-        </label>
         </section>
 
         <section class="messages" id="messages" aria-live="polite" aria-label="消息">

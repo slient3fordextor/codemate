@@ -203,8 +203,8 @@ async function sendMessage(message) {
   const payload = {
     session_id: sessionId || null,
     message,
-    current_file: currentFileInput.value.trim() || null,
-    selected_text: selectedTextInput.value.trim() || null,
+    current_file: currentFileInput?.value.trim() || null,
+    selected_text: selectedTextInput?.value.trim() || null,
     stream: true,
     metadata: {
       operation_mode: operationMode,
