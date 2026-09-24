@@ -2,10 +2,15 @@ HOST ?= 127.0.0.1
 PORT ?= 8000
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 
-.PHONY: dev sync test lint format typecheck check
+.PHONY: start deploy dev sync test lint format typecheck check
+
+start:
+	./scripts/start.sh
+
+deploy: start
 
 dev:
-	uvicorn app.main:app --reload --host $(HOST) --port $(PORT)
+	$(PYTHON) -m uvicorn app.main:app --reload --host $(HOST) --port $(PORT)
 
 sync:
 	$(PYTHON) -m pip install -c requirements.lock -e ".[dev]"

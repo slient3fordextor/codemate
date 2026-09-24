@@ -43,6 +43,39 @@ python -m pip install -c requirements.lock -e ".[dev]"
 make sync
 ```
 
+### 一键启动
+
+在项目根目录执行：
+
+```bash
+make start
+```
+
+或直接执行：
+
+```bash
+./scripts/start.sh
+```
+
+首次启动会自动创建 `.venv`、安装 `requirements.lock` 中的依赖，并从
+`.env.example` 创建 `.env`。之后启动会复用已有环境；当
+`requirements.lock` 发生变化时会自动重新同步依赖。
+
+默认访问地址是 `http://127.0.0.1:8000/`。可以通过环境变量覆盖：
+
+```bash
+HOST=0.0.0.0 PORT=8080 WORKERS=2 make start
+```
+
+开发模式可启用自动重载：
+
+```bash
+CODEMATE_RELOAD=true make start
+```
+
+远程绑定时仍需在 `.env` 中显式配置 `ALLOW_REMOTE_API=true` 和强 Bearer
+Token；没有配置时 API 会继续拒绝远程请求。
+
 创建本地配置文件：
 
 ```bash
