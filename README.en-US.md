@@ -121,7 +121,11 @@ make test
 Run the same checks used by CI:
 
 ```bash
-.venv/bin/ruff check .
-.venv/bin/mypy app
-.venv/bin/pytest -q
+make check
+make test-safety  # Requires a working Linux Bubblewrap sandbox; skips are not accepted
 ```
+
+`make check` includes formatting, Python/Node tests, type checks, local documentation links,
+and a clean wheel installation smoke test. Node, venv/pip, build tools and access to cached
+or downloadable locked runtime dependencies are required. CLI resume restores the task
+worktree, not an exact Loop checkpoint: round and token budgets currently reset per run.

@@ -1,6 +1,6 @@
 # CodeMate
 
-[English](README.en-US.md) | [简体中文](README.en-US.md)
+[English](README.en-US.md) | [简体中文](README.md)
 
 CodeMate 是一个本地优先的 AI 编码助手，提供 Agent CLI 和基于 FastAPI 的 Web 对话后端。
 
@@ -11,7 +11,7 @@ CodeMate 是一个本地优先的 AI 编码助手，提供 Agent CLI 和基于 F
 - 可写任务在独立的 Git worktree 中运行，不会直接修改当前工作区。
 - 文件修改先生成统一 diff，再根据权限策略审批和原子写入。
 - 测试、格式化和类型检查命令在无网络的 Bubblewrap 沙箱中执行。
-- 执行图、Loop 状态和任务状态通过 SQLite 持久化，可使用同一任务 ID 恢复。
+- 执行图和任务状态通过 SQLite 持久化，可恢复同任务 worktree；CLI 尚未接通完整 Loop 状态与累计预算恢复。
 - 任务变更只有在用户显式执行 `deliver` 后才会应用到原工作区。
 - Web/API 默认只允许本机访问；远程访问需要显式开启并配置 Bearer Token。
 
@@ -237,6 +237,7 @@ codemate discard parser-fix --workspace . --force
 - 超过 15 轮后，每一轮都需要交互式确认；
 - 非交互任务不会绕过审批，而是返回等待审批状态；
 - 模型上下文、总 Token、文件大小、工具输出、命令时长和内存均有独立上限。
+- 轮数与总 Token 当前按单次 `run` 计数；同任务再次运行会重新计数，不是精确 checkpoint 恢复或任务累计预算。完整约定见 [恢复与预算边界](docs/engineering/zh/15-CodeMate全流程与Agent工程方法论.md#3-持久化与恢复约定o-04-阶段-a)。
 
 ## 模型配置
 
@@ -329,13 +330,14 @@ curl -i 'http://127.0.0.1:8000/api/v1/health?probe_model=true'
 make lint       # Ruff 静态检查
 make typecheck  # mypy 严格类型检查
 make test       # pytest 测试
-make check      # 依次执行以上全部门禁
+make check      # Python/Node、格式、类型、文档链接与干净 wheel 安装
 make format     # Ruff 代码格式化
+make test-safety # 强制真实 Bubblewrap 与跨进程安全测试
 ```
 
 当仓库存在 `.venv/bin/python` 时，Makefile 会自动使用项目虚拟环境。
 
-当前完整门禁包含 102 项自动化测试，覆盖 API、记忆、模型适配器、Agent Runner、执行图、SQLite 恢复、敏感边界、Bubblewrap 和 worktree 交付。
+完整门禁覆盖 API、记忆、模型适配器、Agent Runner、执行图、SQLite 恢复、敏感边界、Bubblewrap、跨进程互斥与 worktree 交付，具体测试数量以当次结果为准。需要 Node、venv/pip 和 wheel 构建工具；wheel 烟测会在临时隔离环境安装锁定运行依赖，需要包缓存或网络。缺少 Linux/Bubblewrap 时普通测试可能跳过沙箱用例，安全验收仍须执行 `make test-safety`。
 
 ## 目录说明
 

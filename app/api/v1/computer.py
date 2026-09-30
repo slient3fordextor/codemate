@@ -9,9 +9,12 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.adapters.models import build_model_adapter
+from app.agent.desktop_lock import desktop_lock_path
+from app.agent.locking import process_lock
 from app.agent.runner import ReadonlyAgentRunner, ToolApprovalRequest
 from app.agent.tools.desktop import DesktopControl
 from app.agent.tools.readonly import ReadonlyToolError
+from app.agent.worktree.models import WorktreeError
 from app.core.config import get_settings
 from app.services.context_budget import ContextBudgetPlanner
 from app.services.token_counter import build_token_counter
@@ -48,10 +51,12 @@ async def run_computer(socket: WebSocket) -> None:
         await socket.close()
         return
     async with _desktop_lock:
+        locks = contextlib.ExitStack()
         task: asyncio.Task[None] | None = None
         pending: dict[str, asyncio.Future[bool]] = {}
         tools: DesktopControl | None = None
         try:
+            locks.enter_context(process_lock(desktop_lock_path(), action="desktop-session"))
             start = await asyncio.wait_for(socket.receive_json(), 30)
             objective = start.get("objective") if isinstance(start, dict) else None
             if not isinstance(objective, str) or not objective.strip() or len(objective) > 16000:
@@ -105,17 +110,22 @@ async def run_computer(socket: WebSocket) -> None:
                 future = pending.get(str(message.get("id", "")))
                 if future is not None and not future.done():
                     future.set_result(message.get("approved") is True)
-        except (WebSocketDisconnect, RuntimeError):
-            pass
-        except (ReadonlyToolError, TimeoutError, ValueError) as exc:
+        except (ReadonlyToolError, WorktreeError, TimeoutError, ValueError) as exc:
             with contextlib.suppress(RuntimeError, WebSocketDisconnect):
                 await socket.send_json({"type": "error", "message": str(exc)})
+        except (WebSocketDisconnect, RuntimeError):
+            pass
         finally:
-            if tools is not None:
-                tools.cancel()
-            if task is not None:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, RuntimeError, WebSocketDisconnect):
-                    await task
-            with contextlib.suppress(RuntimeError, WebSocketDisconnect):
-                await socket.close()
+            try:
+                if tools is not None:
+                    tools.cancel()
+                if task is not None:
+                    task.cancel()
+                    with contextlib.suppress(
+                        asyncio.CancelledError, RuntimeError, WebSocketDisconnect
+                    ):
+                        await task
+                with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+                    await socket.close()
+            finally:
+                locks.close()

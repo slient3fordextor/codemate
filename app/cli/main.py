@@ -4,6 +4,7 @@ import hashlib
 import json
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -159,6 +160,42 @@ async def _interactive(workspace: Path, mode: PermissionMode) -> int:
 
 
 async def _run_once(
+    objective: str,
+    workspace: Path,
+    *,
+    mode: PermissionMode,
+    json_output: bool,
+    interactive: bool,
+    task_id: str | None = None,
+    approve_interrupted_command: bool = False,
+    deliver_requested: bool = False,
+) -> int:
+    async def execute(effective_id: str | None) -> int:
+        return await _run_once_locked(
+            objective,
+            workspace,
+            mode=mode,
+            json_output=json_output,
+            interactive=interactive,
+            task_id=effective_id,
+            approve_interrupted_command=approve_interrupted_command,
+            deliver_requested=deliver_requested,
+        )
+
+    if mode is PermissionMode.READONLY:
+        return await execute(task_id)
+    effective_task_id = task_id or uuid4().hex
+    try:
+        resolved = workspace.expanduser().resolve()
+        manager = WorktreeManager(resolved, _worktree_root(resolved))
+        with manager.task_lock(effective_task_id, action="run"):
+            return await execute(effective_task_id)
+    except (ValueError, WorktreeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+
+async def _run_once_locked(
     objective: str,
     workspace: Path,
     *,
@@ -419,6 +456,15 @@ async def _run_once(
 
 
 def _deliver_task(task_id: str, workspace: Path, *, json_output: bool) -> int:
+    return _with_task_lock(
+        task_id,
+        workspace,
+        "deliver",
+        lambda: _deliver_task_locked(task_id, workspace, json_output=json_output),
+    )
+
+
+def _deliver_task_locked(task_id: str, workspace: Path, *, json_output: bool) -> int:
     resolved_workspace = workspace.expanduser().resolve()
     try:
         store = SQLiteAgentStore(default_agent_state_path(resolved_workspace))
@@ -453,6 +499,15 @@ def _deliver_task(task_id: str, workspace: Path, *, json_output: bool) -> int:
 
 
 def _rollback_task(task_id: str, workspace: Path, *, json_output: bool) -> int:
+    return _with_task_lock(
+        task_id,
+        workspace,
+        "rollback",
+        lambda: _rollback_task_locked(task_id, workspace, json_output=json_output),
+    )
+
+
+def _rollback_task_locked(task_id: str, workspace: Path, *, json_output: bool) -> int:
     resolved_workspace = workspace.expanduser().resolve()
     try:
         store = SQLiteAgentStore(default_agent_state_path(resolved_workspace))
@@ -483,6 +538,15 @@ def _rollback_task(task_id: str, workspace: Path, *, json_output: bool) -> int:
 
 
 def _discard_task(task_id: str, workspace: Path, *, force: bool) -> int:
+    return _with_task_lock(
+        task_id,
+        workspace,
+        "discard",
+        lambda: _discard_task_locked(task_id, workspace, force=force),
+    )
+
+
+def _discard_task_locked(task_id: str, workspace: Path, *, force: bool) -> int:
     resolved_workspace = workspace.expanduser().resolve()
     try:
         store = SQLiteAgentStore(default_agent_state_path(resolved_workspace))
@@ -505,6 +569,19 @@ def _discard_task(task_id: str, workspace: Path, *, force: bool) -> int:
         return 1
     print(f"Discarded task {task_id}")
     return 0
+
+
+def _with_task_lock(
+    task_id: str, workspace: Path, action: str, operation: Callable[[], int]
+) -> int:
+    try:
+        resolved = workspace.expanduser().resolve()
+        manager = WorktreeManager(resolved, _worktree_root(resolved))
+        with manager.task_lock(task_id, action=action):
+            return operation()
+    except (ValueError, WorktreeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 def _worktree_root(workspace: Path) -> Path:

@@ -1,9 +1,21 @@
+import os
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 
 from app.core.config import get_settings
+from tests.agent_support import create_repository, require_bubblewrap
+
+
+@pytest.fixture
+def safety_repository(tmp_path: Path) -> Path:
+    return create_repository(tmp_path / "repository")
+
+
+@pytest.fixture
+def real_sandbox() -> None:
+    require_bubblewrap(os.environ.get("CODEMATE_REQUIRE_SANDBOX_TESTS") == "1")
 
 
 @pytest.fixture(autouse=True)

@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import threading
+from pathlib import Path
 from typing import Any
 
 from app.adapters.models.base import ModelToolDefinition
@@ -212,10 +214,14 @@ class DesktopControl:
         )
 
     def cancel(self) -> None:
+        process: subprocess.Popen[str] | None = None
         with self._lock:
             self._cancelled.set()
             if self._process is not None and self._process.poll() is None:
-                self._process.kill()
+                process = self._process
+                process.kill()
+        if process is not None:
+            process.wait(timeout=8)
 
     def _run(self, command: list[str]) -> str:
         try:
@@ -223,7 +229,13 @@ class DesktopControl:
                 if self._cancelled.is_set():
                     raise ReadonlyToolError("任务已停止")
                 process = subprocess.Popen(
-                    command,
+                    [
+                        sys.executable,
+                        str(Path(__file__).resolve().parents[1] / "desktop_command.py"),
+                        str(os.getpid()),
+                        "--",
+                        *command,
+                    ],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,

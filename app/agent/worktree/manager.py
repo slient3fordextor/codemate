@@ -1,8 +1,10 @@
 import os
 import re
 import subprocess
+from contextlib import AbstractContextManager
 from pathlib import Path
 
+from app.agent.locking import process_lock
 from app.agent.worktree.models import (
     DeliveryResult,
     RollbackResult,
@@ -33,6 +35,10 @@ class GitAdapter:
 
     def repository_root(self, path: Path) -> Path:
         return Path(self._git(path, "rev-parse", "--show-toplevel").strip()).resolve()
+
+    def common_directory(self, path: Path) -> Path:
+        directory = Path(self._git(path, "rev-parse", "--git-common-dir").strip())
+        return (path / directory).resolve()
 
     def head_commit(self, repository_root: Path) -> str:
         return self._git(repository_root, "rev-parse", "HEAD").strip()
@@ -222,6 +228,11 @@ class WorktreeManager:
         else:
             raise WorktreeError("Task worktree root must be outside the source repository")
         self._git_timeout_seconds = git_timeout_seconds
+        self._lock_root = self._git.common_directory(self._repository_root) / "codemate-locks"
+
+    def task_lock(self, task_id: str, *, action: str) -> AbstractContextManager[None]:
+        self._validate_task_id(task_id)
+        return process_lock(self._lock_root / f"task-{task_id}.lock", action=action)
 
     def create(self, task_id: str, *, include_tracked_diff: bool = False) -> TaskWorktree:
         self._validate_task_id(task_id)
@@ -274,6 +285,18 @@ class WorktreeManager:
         *,
         expected_patch_digest: str,
     ) -> DeliveryResult:
+        with process_lock(self._lock_root / "delivery.lock", action="deliver", timeout_seconds=10):
+            return self._deliver(
+                task_worktree, target_path, expected_patch_digest=expected_patch_digest
+            )
+
+    def _deliver(
+        self,
+        task_worktree: TaskWorktree,
+        target_path: Path,
+        *,
+        expected_patch_digest: str,
+    ) -> DeliveryResult:
         self._assert_managed(task_worktree)
         target_root = self._git.repository_root(target_path)
         if target_root != self._repository_root:
@@ -287,26 +310,35 @@ class WorktreeManager:
             rendered = ", ".join(path.as_posix() for path in conflicts[:20])
             raise WorktreeError(f"Target workspace changed overlapping files: {rendered}")
 
+        for relative_path in task_paths:
+            self._safe_target(target_root, relative_path)
+            self._safe_target(task_worktree.path, relative_path)
         empty_paths = tuple(
             path
             for path in changes.untracked_paths
             if (task_worktree.path / path).stat().st_size == 0
         )
         for relative_path in changes.untracked_paths:
-            target = (target_root / relative_path).resolve()
-            try:
-                target.relative_to(target_root)
-            except ValueError as exc:
-                raise WorktreeError("Task change path escaped the target workspace") from exc
+            target = self._safe_target(target_root, relative_path)
             if target.exists():
                 raise WorktreeError(f"Untracked task path already exists: {relative_path}")
-            if not target.parent.is_dir():
-                raise WorktreeError(f"Task change parent does not exist: {relative_path}")
 
         self._git.check_diff(target_root, changes.patch)
         created_empty: list[Path] = []
+        created_directories: list[tuple[Path, os.stat_result]] = []
+        existing_directories: set[Path] = set()
+        for relative_path in changes.untracked_paths:
+            for parent in (target_root / relative_path).parents:
+                if parent == target_root:
+                    break
+                if parent.is_dir():
+                    existing_directories.add(parent)
         patch_applied = False
         try:
+            for relative_path in changes.untracked_paths:
+                self._create_target_parents(target_root, relative_path, created_directories)
+            # Recheck after directory creation; external editors do not honor our lock.
+            self._git.check_diff(target_root, changes.patch)
             self._git.apply_diff(target_root, changes.patch)
             patch_applied = True
             for relative_path in empty_paths:
@@ -318,14 +350,31 @@ class WorktreeManager:
                     os.fsync(stream.fileno())
                 created_empty.append(target)
         except Exception:
-            for target in created_empty:
-                target.unlink(missing_ok=True)
-            if patch_applied:
-                self._git.reverse_diff(target_root, changes.patch)
+            try:
+                for target in created_empty:
+                    target.unlink(missing_ok=True)
+                if patch_applied:
+                    self._git.reverse_diff(target_root, changes.patch)
+            finally:
+                for directory in sorted(existing_directories, key=lambda path: len(path.parts)):
+                    directory.mkdir(exist_ok=True)
+                self._remove_created_directories(created_directories)
             raise
         return DeliveryResult.create(task_worktree.task_id, target_root, task_paths)
 
     def rollback(
+        self,
+        task_worktree: TaskWorktree,
+        target_path: Path,
+        *,
+        expected_patch_digest: str,
+    ) -> RollbackResult:
+        with process_lock(self._lock_root / "delivery.lock", action="rollback", timeout_seconds=10):
+            return self._rollback(
+                task_worktree, target_path, expected_patch_digest=expected_patch_digest
+            )
+
+    def _rollback(
         self,
         task_worktree: TaskWorktree,
         target_path: Path,
@@ -339,6 +388,9 @@ class WorktreeManager:
         changes = self._git.task_changes(task_worktree)
         self._require_expected_patch(changes, expected_patch_digest)
         task_paths = self._git.task_changed_paths(task_worktree)
+        for relative_path in task_paths:
+            self._safe_target(target_root, relative_path)
+            self._safe_target(task_worktree.path, relative_path)
         empty_paths = tuple(
             path
             for path in changes.untracked_paths
@@ -373,6 +425,52 @@ class WorktreeManager:
         if self._git.is_dirty(task_worktree.path) and not force:
             raise WorktreeError("Task worktree has unreviewed changes; force is required")
         self._remove_path(task_worktree.path, force=force)
+
+    @staticmethod
+    def _safe_target(root: Path, relative_path: Path) -> Path:
+        if relative_path.is_absolute() or any(
+            part in {"..", ".git"} for part in relative_path.parts
+        ):
+            raise WorktreeError("Task change path escaped the target workspace")
+        target = root
+        for index, part in enumerate(relative_path.parts):
+            target = target / part
+            if target.is_symlink():
+                raise WorktreeError(f"Task change path contains a symbolic link: {relative_path}")
+            if index < len(relative_path.parts) - 1 and target.exists() and not target.is_dir():
+                raise WorktreeError(f"Task change parent is not a directory: {relative_path}")
+        return target
+
+    @classmethod
+    def _create_target_parents(
+        cls, root: Path, path: Path, created: list[tuple[Path, os.stat_result]]
+    ) -> None:
+        cls._safe_target(root, path)
+        parent = root
+        for part in path.parts[:-1]:
+            parent = parent / part
+            try:
+                parent.mkdir()
+            except FileExistsError:
+                cls._safe_target(root, path)
+            else:
+                created.append((parent, parent.lstat()))
+
+    @staticmethod
+    def _remove_created_directories(created: list[tuple[Path, os.stat_result]]) -> None:
+        for directory, original in reversed(created):
+            try:
+                current = directory.lstat()
+                if (current.st_dev, current.st_ino) != (original.st_dev, original.st_ino):
+                    continue
+                directory.rmdir()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                # A concurrent user file makes the directory non-empty; preserve it.
+                if not directory.is_dir() or any(directory.iterdir()):
+                    continue
+                raise
 
     @staticmethod
     def _require_expected_patch(
