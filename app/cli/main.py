@@ -5,12 +5,12 @@ import json
 import sys
 import tempfile
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from app.adapters.models import build_model_adapter
+from app.adapters.models.base import ModelProviderError
 from app.agent import (
     AgentProgressEvent,
     AgentRunResult,
@@ -24,16 +24,17 @@ from app.agent import (
     default_agent_state_path,
 )
 from app.agent.graph import NodeState, NodeType
-from app.agent.sandbox import BubblewrapExecutor, SandboxPolicy, SandboxPolicyError
+from app.agent.sandbox import SandboxPolicyError
+from app.agent.tasks import AgentTaskService
 from app.agent.tools import (
-    ControlledToolExecutor,
     PermissionMode,
     ReadonlyToolExecutor,
-    WorkspaceEditor,
 )
 from app.agent.worktree import TaskWorktree, WorktreeError, WorktreeManager
 from app.core.config import get_settings
+from app.core.errors import AppError
 from app.services.context_budget import ContextBudgetPlanner
+from app.services.model_profiles import ModelProfiles
 from app.services.token_counter import build_token_counter
 
 
@@ -102,6 +103,20 @@ def build_parser() -> argparse.ArgumentParser:
     discard_parser.add_argument("task_id")
     discard_parser.add_argument("--workspace", type=Path, default=Path.cwd())
     discard_parser.add_argument("--force", action="store_true")
+    task_parser = subparsers.add_parser("tasks", help="inspect retained tasks without a model")
+    task_commands = task_parser.add_subparsers(dest="task_command", required=True)
+    for command in ("list", "show", "inspect", "gc", "backup"):
+        command_parser = task_commands.add_parser(command)
+        command_parser.add_argument("--workspace", type=Path, default=Path.cwd())
+        if command in {"show", "inspect"}:
+            command_parser.add_argument("task_id")
+        if command == "gc":
+            command_parser.add_argument("--days", type=int, default=30)
+            command_parser.add_argument("--apply", action="store_true")
+        if command == "backup":
+            command_parser.add_argument("destination", type=Path)
+    doctor_parser = subparsers.add_parser("doctor", help="check local dependencies without secrets")
+    doctor_parser.add_argument("--workspace", type=Path, default=Path.cwd())
     return parser
 
 
@@ -131,6 +146,64 @@ def main(argv: list[str] | None = None) -> int:
         return _rollback_task(args.task_id, args.workspace, json_output=args.json_output)
     if args.command == "discard":
         return _discard_task(args.task_id, args.workspace, force=args.force)
+    if args.command in {"tasks", "doctor"}:
+        from app.cli import diagnostics
+
+        workspace = args.workspace.expanduser().resolve()
+        payload: Any
+        try:
+            if args.command == "doctor":
+                payload = diagnostics.doctor(workspace)
+            elif args.task_command == "list":
+                payload = [
+                    diagnostics.task_payload(record) for record in diagnostics.records(workspace)
+                ]
+            elif args.task_command in {"show", "inspect"}:
+                if args.task_command == "inspect":
+                    payload = diagnostics.inspect_task(
+                        workspace, args.task_id, _worktree_root(workspace)
+                    )
+                else:
+                    record = SQLiteAgentStore(default_agent_state_path(workspace)).load_task(
+                        args.task_id
+                    )
+                    if record.repository_root != workspace:
+                        raise WorktreeError("Task belongs to a different workspace")
+                    payload = diagnostics.task_payload(record)
+            elif args.task_command == "backup":
+                payload = diagnostics.backup(workspace, args.destination.expanduser().resolve())
+            else:
+                if args.days < 0:
+                    raise ValueError("Retention days cannot be negative")
+                candidates = diagnostics.gc_candidates(
+                    workspace, args.days, _worktree_root(workspace)
+                )
+                payload = {
+                    "preview": not args.apply,
+                    "candidates": [record.task_id for record in candidates],
+                }
+                if args.apply:
+                    for record in candidates:
+
+                        def discard_delivered(record: TaskRecord = record) -> int:
+                            fresh = SQLiteAgentStore(default_agent_state_path(workspace)).load_task(
+                                record.task_id
+                            )
+                            if not diagnostics.cleanup_safe(
+                                fresh, workspace, _worktree_root(workspace)
+                            ):
+                                raise WorktreeError(
+                                    "Task changed or is not delivered; cleanup refused"
+                                )
+                            return _discard_task_locked(record.task_id, workspace, force=True)
+
+                        if _with_task_lock(record.task_id, workspace, "gc", discard_delivered) != 0:
+                            return 1
+            diagnostics.output(payload)
+            return 0
+        except (OSError, ValueError, PersistenceError, WorktreeError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
     if args.command is not None:
         parser.error(f"Unsupported command: {args.command}")
     return asyncio.run(_interactive(args.workspace, PermissionMode(args.mode)))
@@ -170,7 +243,7 @@ async def _run_once(
     approve_interrupted_command: bool = False,
     deliver_requested: bool = False,
 ) -> int:
-    async def execute(effective_id: str | None) -> int:
+    async def execute(effective_id: str | None, temporary_directory: Path | None = None) -> int:
         return await _run_once_locked(
             objective,
             workspace,
@@ -178,6 +251,7 @@ async def _run_once(
             json_output=json_output,
             interactive=interactive,
             task_id=effective_id,
+            temporary_directory=temporary_directory,
             approve_interrupted_command=approve_interrupted_command,
             deliver_requested=deliver_requested,
         )
@@ -189,7 +263,8 @@ async def _run_once(
         resolved = workspace.expanduser().resolve()
         manager = WorktreeManager(resolved, _worktree_root(resolved))
         with manager.task_lock(effective_task_id, action="run"):
-            return await execute(effective_task_id)
+            with tempfile.TemporaryDirectory(prefix="codemate-sandbox-") as temporary:
+                return await execute(effective_task_id, Path(temporary))
     except (ValueError, WorktreeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -205,253 +280,128 @@ async def _run_once_locked(
     task_id: str | None = None,
     approve_interrupted_command: bool = False,
     deliver_requested: bool = False,
+    temporary_directory: Path | None = None,
 ) -> int:
     settings = get_settings()
-    resolved_workspace = workspace.expanduser().resolve()
-    task_store: SQLiteAgentStore | None = None
-    task_record: TaskRecord | None = None
-    task_worktree: TaskWorktree | None = None
-    worktree_manager: WorktreeManager | None = None
-    interrupted_command = False
+    resolved = workspace.expanduser().resolve()
     if deliver_requested and mode is PermissionMode.READONLY:
         print("--deliver requires confirm or agent mode", file=sys.stderr)
         return 1
-    try:
-        tool_workspace = resolved_workspace
-        if mode is not PermissionMode.READONLY:
-            effective_task_id = task_id or f"task-{uuid4().hex[:16]}"
-            task_store = SQLiteAgentStore(default_agent_state_path(resolved_workspace))
-            worktree_manager = WorktreeManager(
-                resolved_workspace,
-                _worktree_root(resolved_workspace),
-            )
-            try:
-                task_record = task_store.load_task(effective_task_id)
-            except PersistenceError:
-                task_worktree = worktree_manager.create(effective_task_id)
-                task_record = TaskRecord.create(
-                    effective_task_id,
-                    objective,
-                    task_worktree.repository_root,
-                    task_worktree.path,
-                    task_worktree.base_commit,
-                    task_worktree.base_branch,
-                )
-                task_store.save_task(task_record)
-                task_record = task_record.transition(TaskState.PREPARING)
-                task_store.save_task(task_record)
-            else:
-                task_record, interrupted_command = _prepare_resumed_task(task_store, task_record)
-                task_worktree = worktree_manager.recover(_task_worktree(task_record))
-            tool_workspace = task_worktree.path
-
-        readonly_tools = ReadonlyToolExecutor(
-            tool_workspace,
-            ignored_names=settings.workspace.ignored_names,
-            max_file_bytes=settings.workspace.max_file_bytes,
-            max_tree_entries=settings.workspace.max_tree_entries,
-            max_output_bytes=max(
-                4_000,
-                min(100_000, settings.model.context_window * 2),
-            ),
-        )
-        if mode is PermissionMode.READONLY:
-            tools: ReadonlyToolExecutor | ControlledToolExecutor = readonly_tools
-        else:
-            if task_worktree is None or worktree_manager is None:
-                raise RuntimeError("Writable task worktree was not initialized")
-
-            def workspace_digest() -> str:
-                return worktree_manager.changes(task_worktree).patch_digest
-
-            temporary_root = Path(
-                tempfile.mkdtemp(prefix=f"codemate-{task_worktree.task_id}-")
-            ).resolve()
-            policy = SandboxPolicy(tool_workspace, temporary_root)
-            tools = ControlledToolExecutor(
-                readonly_tools,
-                WorkspaceEditor(policy, max_file_bytes=settings.workspace.max_file_bytes),
-                BubblewrapExecutor(policy),
-                mode,
-                workspace_digest=workspace_digest,
-                workspace_dirty=worktree_manager.changes(task_worktree).dirty,
-                require_command_approval=(interrupted_command and not approve_interrupted_command),
-            )
-            if task_record is None or task_store is None:
-                raise RuntimeError("Writable task state was not initialized")
-            if task_record.state is TaskState.PREPARING:
-                task_record = task_record.transition(TaskState.ACTIVE)
-                task_store.save_task(task_record)
-    except (ValueError, WorktreeError, SandboxPolicyError) as exc:
-        if (
-            task_record is not None
-            and task_store is not None
-            and task_record.state in {TaskState.PREPARING, TaskState.ACTIVE}
-        ):
-            task_record = task_record.transition(TaskState.FAILED, error=str(exc))
-            task_store.save_task(task_record)
-        print(str(exc), file=sys.stderr)
-        return 1
-    runner = ReadonlyAgentRunner(
-        build_model_adapter(settings.model),
-        settings.model.name,
-        tools,
-        context_budget_planner=ContextBudgetPlanner(
-            build_token_counter(settings.model.provider, settings.model.name),
-            settings.model.context_window,
-        ),
-    )
 
     def progress(event: AgentProgressEvent) -> None:
         if json_output:
             return
         if event.type == "model.started":
-            print(f"[model] round {event.data['round']}", file=sys.stderr)
+            print(f"[model] round {event.data.get('round')}", file=sys.stderr)
         elif event.type == "tool.completed":
-            cached = " (cached)" if event.data.get("cached") else ""
-            print(f"[tool] {event.data['tool']}{cached}", file=sys.stderr)
-        elif event.type == "model.invalid_decision":
-            print(f"[model] invalid decision: {event.data['error']}", file=sys.stderr)
+            print(f"[tool] {event.data.get('tool')}", file=sys.stderr)
 
     async def approve(next_round: int) -> bool:
-        if not interactive:
-            return False
-        answer = await asyncio.to_thread(
-            input,
-            f"ReAct round {next_round} exceeds the automatic limit. Continue once? [y/N] ",
-        )
+        answer = await asyncio.to_thread(input, f"Continue round {next_round} once? [y/N] ")
         return answer.strip().casefold() in {"y", "yes"}
 
     async def approve_tool(request: ToolApprovalRequest) -> bool:
-        if not interactive:
-            return False
-        print(f"\n[approval] {request.tool}", file=sys.stderr)
         print(request.preview, file=sys.stderr)
         answer = await asyncio.to_thread(input, "Approve this action once? [y/N] ")
         return answer.strip().casefold() in {"y", "yes"}
 
-    async def approve_delivery(task: TaskRecord, diff: str) -> bool:
-        print(f"\n[delivery] verified task {task.task_id}", file=sys.stderr)
-        print(diff or "[no file changes]", file=sys.stderr)
-        answer = await asyncio.to_thread(
-            input,
-            "Deliver these validated changes to the source workspace? [y/N] ",
-        )
-        return answer.strip().casefold() in {"y", "yes"}
-
-    def checkpoint_graph(graph: Any) -> None:
-        nonlocal task_record
-        if task_store is None or task_record is None:
-            return
-        task_store.append_graph(graph)
-        if task_record.graph_id != graph.graph_id:
-            task_record = task_record.checkpoint(graph.graph_id)
-            task_store.save_task(task_record)
-
-    result = await runner.run(
-        objective,
-        on_progress=progress,
-        approve_round=approve if interactive else None,
-        approve_tool=approve_tool if interactive and mode is not PermissionMode.READONLY else None,
-        checkpoint=checkpoint_graph if task_store is not None else None,
-    )
-    extra: dict[str, Any] = {}
-    delivery_error: str | None = None
-    delivered = False
-    if task_record is not None and task_store is not None and task_worktree is not None:
-        task_store.append_graph(result.graph)
-        if worktree_manager is None:
-            raise RuntimeError("Writable task worktree manager was not initialized")
-        changes = worktree_manager.changes(task_worktree)
-        changed_paths = worktree_manager.changed_paths(task_worktree)
-        if result.status is AgentRunStatus.COMPLETED:
-            validated_patch_digest = tools.validated_patch_digest
-            if validated_patch_digest != changes.patch_digest:
-                validation_error = "Task worktree changed after successful validation"
-                result = replace(
-                    result,
-                    status=AgentRunStatus.NEEDS_EVIDENCE,
-                    error=validation_error,
-                )
-                task_record = task_record.transition(
-                    TaskState.FAILED,
-                    graph_id=result.graph.graph_id,
-                    error=validation_error,
-                )
-            else:
-                task_record = task_record.record_validation(validated_patch_digest).transition(
-                    TaskState.COMPLETED,
-                    graph_id=result.graph.graph_id,
-                )
-        elif result.status is AgentRunStatus.WAITING_APPROVAL:
-            task_record = task_record.transition(
-                TaskState.WAITING_APPROVAL,
-                graph_id=result.graph.graph_id,
+    try:
+        if mode is PermissionMode.READONLY:
+            model = build_model_adapter(settings.model)
+            tools = ReadonlyToolExecutor(
+                resolved,
+                ignored_names=settings.workspace.ignored_names,
+                max_file_bytes=settings.workspace.max_file_bytes,
+                max_tree_entries=settings.workspace.max_tree_entries,
+                max_output_bytes=max(4000, min(100000, settings.model.context_window * 2)),
             )
+            runner = ReadonlyAgentRunner(
+                model,
+                settings.model.name,
+                tools,
+                context_budget_planner=ContextBudgetPlanner(
+                    build_token_counter(settings.model.provider, settings.model.name),
+                    settings.model.context_window,
+                ),
+            )
+            result = await runner.run(
+                objective, on_progress=progress, approve_round=approve if interactive else None
+            )
+            payload = _result_payload(result)
         else:
-            task_record = task_record.transition(
-                TaskState.FAILED,
-                graph_id=result.graph.graph_id,
-                error=result.error,
+            if temporary_directory is None or task_id is None:
+                raise ValueError("Writable task requires a managed temporary directory and ID")
+            service = AgentTaskService(resolved, settings, root=_worktree_root(resolved))
+            config = settings.model
+            with service.store._connect() as db:
+                spec = db.execute(
+                    "SELECT profile_id FROM task_specs WHERE task_id=?", (task_id,)
+                ).fetchone()
+            if spec and spec[0]:
+                config = ModelProfiles(service.store).get(spec[0])[0]
+            model = build_model_adapter(config)
+            outcome = await service.run_locked(
+                task_id,
+                objective,
+                mode,
+                temporary_directory,
+                model,
+                config,
+                progress=progress,
+                approve_tool=approve_tool if interactive else None,
+                approve_round=approve if interactive else None,
+                approve_interrupted_command=approve_interrupted_command,
+                max_rounds=settings.agent_max_rounds,
+                max_tokens=settings.agent_max_tokens,
+                max_replans=settings.agent_max_replans,
             )
-        task_store.save_task(task_record)
-
-        should_deliver = deliver_requested
-        if (
-            result.status is AgentRunStatus.COMPLETED
-            and interactive
-            and changes.dirty
-            and not should_deliver
-        ):
-            should_deliver = await approve_delivery(
-                task_record,
-                changes.patch.decode("utf-8", errors="replace"),
-            )
-        if task_record.state is TaskState.COMPLETED and should_deliver:
-            try:
-                worktree_manager.deliver(
-                    task_worktree,
-                    resolved_workspace,
-                    expected_patch_digest=changes.patch_digest,
+            result = outcome.result
+            payload = outcome.payload()
+            should_deliver = deliver_requested
+            if (
+                result.status is AgentRunStatus.COMPLETED
+                and interactive
+                and outcome.diff
+                and not should_deliver
+            ):
+                print(outcome.diff, file=sys.stderr)
+                answer = await asyncio.to_thread(input, "Deliver these validated changes? [y/N] ")
+                should_deliver = answer.strip().casefold() in {"y", "yes"}
+            if result.status is AgentRunStatus.COMPLETED and should_deliver:
+                delivery = service.deliver_locked(task_id, outcome.record.validated_patch_digest)
+                payload.update({"delivered": True, "task_state": delivery["state"]})
+    except (
+        ValueError,
+        WorktreeError,
+        SandboxPolicyError,
+        PersistenceError,
+        ModelProviderError,
+        AppError,
+    ) as exc:
+        print(str(exc), file=sys.stderr)
+        if json_output:
+            print(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "task_id": task_id,
+                        "error": {
+                            "code": getattr(exc, "code", "TASK_REJECTED"),
+                            "message": str(exc),
+                        },
+                    },
+                    ensure_ascii=False,
                 )
-            except WorktreeError as exc:
-                delivery_error = str(exc)
-            else:
-                task_record = task_record.transition(TaskState.DELIVERED)
-                task_store.save_task(task_record)
-                delivered = True
-
-        extra = {
-            "task_id": task_record.task_id,
-            "task_state": task_record.state.value,
-            "worktree": str(task_worktree.path),
-            "changed_paths": [path.as_posix() for path in changed_paths],
-            "diff": changes.patch.decode("utf-8", errors="replace"),
-            "validated_patch_digest": task_record.validated_patch_digest,
-            "delivered": delivered,
-        }
-        if delivery_error is not None:
-            extra["delivery_error"] = delivery_error
+            )
+        return 1
     if json_output:
-        print(json.dumps({**_result_payload(result), **extra}, ensure_ascii=False))
+        print(json.dumps(payload, ensure_ascii=False))
     elif result.status is AgentRunStatus.COMPLETED:
         print(result.answer)
-        if delivered and task_record is not None:
-            print(
-                f"Delivered verified task {task_record.task_id}. "
-                f"Rollback: codemate rollback {task_record.task_id} "
-                f"--workspace {resolved_workspace}"
-            )
-        elif task_record is not None:
-            print(
-                f"Task {task_record.task_id} retained for review. "
-                f"Run: codemate deliver {task_record.task_id} --workspace {resolved_workspace}"
-            )
+        if mode is not PermissionMode.READONLY:
+            print(f"Task {task_id}: {payload['task_state']}")
     else:
         print(result.error or result.status.value, file=sys.stderr)
-    if delivery_error is not None:
-        print(delivery_error, file=sys.stderr)
-        return 1
     return 0 if result.status is AgentRunStatus.COMPLETED else 2
 
 
@@ -465,35 +415,14 @@ def _deliver_task(task_id: str, workspace: Path, *, json_output: bool) -> int:
 
 
 def _deliver_task_locked(task_id: str, workspace: Path, *, json_output: bool) -> int:
-    resolved_workspace = workspace.expanduser().resolve()
     try:
-        store = SQLiteAgentStore(default_agent_state_path(resolved_workspace))
-        record = store.load_task(task_id)
-        if record.state not in {
-            TaskState.COMPLETED,
-            TaskState.RETAINED,
-            TaskState.ROLLED_BACK,
-        }:
-            raise WorktreeError(f"Task is not ready for delivery: {record.state.value}")
-        if record.validated_patch_digest is None:
-            raise WorktreeError("Task has no successful validation evidence")
-        manager = WorktreeManager(resolved_workspace, _worktree_root(resolved_workspace))
-        task_worktree = manager.recover(_task_worktree(record))
-        delivery = manager.deliver(
-            task_worktree,
-            resolved_workspace,
-            expected_patch_digest=record.validated_patch_digest,
-        )
-        record = record.transition(TaskState.DELIVERED)
-        store.save_task(record)
+        resolved = workspace.expanduser().resolve()
+        payload = AgentTaskService(
+            resolved, get_settings(), root=_worktree_root(resolved)
+        ).deliver_locked(task_id)
     except (PersistenceError, ValueError, WorktreeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    payload = {
-        "task_id": delivery.task_id,
-        "state": record.state.value,
-        "changed_paths": [path.as_posix() for path in delivery.changed_paths],
-    }
     print(json.dumps(payload, ensure_ascii=False) if json_output else f"Delivered task {task_id}")
     return 0
 
@@ -508,31 +437,14 @@ def _rollback_task(task_id: str, workspace: Path, *, json_output: bool) -> int:
 
 
 def _rollback_task_locked(task_id: str, workspace: Path, *, json_output: bool) -> int:
-    resolved_workspace = workspace.expanduser().resolve()
     try:
-        store = SQLiteAgentStore(default_agent_state_path(resolved_workspace))
-        record = store.load_task(task_id)
-        if record.state is not TaskState.DELIVERED:
-            raise WorktreeError(f"Task is not delivered: {record.state.value}")
-        if record.validated_patch_digest is None:
-            raise WorktreeError("Task has no validated patch digest")
-        manager = WorktreeManager(resolved_workspace, _worktree_root(resolved_workspace))
-        task_worktree = manager.recover(_task_worktree(record))
-        rollback = manager.rollback(
-            task_worktree,
-            resolved_workspace,
-            expected_patch_digest=record.validated_patch_digest,
-        )
-        record = record.transition(TaskState.ROLLED_BACK)
-        store.save_task(record)
+        resolved = workspace.expanduser().resolve()
+        payload = AgentTaskService(
+            resolved, get_settings(), root=_worktree_root(resolved)
+        ).rollback_locked(task_id)
     except (PersistenceError, ValueError, WorktreeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    payload = {
-        "task_id": rollback.task_id,
-        "state": record.state.value,
-        "changed_paths": [path.as_posix() for path in rollback.changed_paths],
-    }
     print(json.dumps(payload, ensure_ascii=False) if json_output else f"Rolled back task {task_id}")
     return 0
 

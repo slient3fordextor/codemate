@@ -11,7 +11,7 @@ CodeMate 是一个本地优先的 AI 编码助手，提供 Agent CLI 和基于 F
 - 可写任务在独立的 Git worktree 中运行，不会直接修改当前工作区。
 - 文件修改先生成统一 diff，再根据权限策略审批和原子写入。
 - 测试、格式化和类型检查命令在无网络的 Bubblewrap 沙箱中执行。
-- 执行图和任务状态通过 SQLite 持久化，可恢复同任务 worktree；CLI 尚未接通完整 Loop 状态与累计预算恢复。
+- 执行图和任务状态通过 SQLite 持久化；可写 CLI 与 Web 任务已接入共享任务服务、累计预算和消息 checkpoint，恢复不等于继续执行中断动作。
 - 任务变更只有在用户显式执行 `deliver` 后才会应用到原工作区。
 - Web/API 默认只允许本机访问；远程访问需要显式开启并配置 Bearer Token。
 
@@ -110,6 +110,26 @@ cp .env.example .env
 codemate --version
 codemate --help
 ```
+
+## Web 会话与项目工作区
+
+当前主线是现有编码闭环的收尾验收，中间层抽层暂缓。实现状态、尚缺的验收和本轮检查结果见 [当前主线与未完成清单](docs/engineering/zh/18-当前主线与未完成清单-2026-10-21.md)。
+
+当前页面支持服务端完整历史、搜索、重命名、归档/恢复和 Markdown/JSON 导出；删除历史与清除模型记忆相互独立。项目上下文面板可预览并附加文件正文、选区和 tracked diff；记忆管理入口位于设置。停止/失败保留部分输出，输入与并发过载受限。
+
+默认 `CHAT_MAX_CONCURRENCY=4`、`CHAT_TIMEOUT_SECONDS=300`；超出容量直接返回 429，不无限排队。`CHAT_METRICS_ENABLED=false` 可关闭轮次指标持久化与完成指标日志。会话历史位于记忆数据库同目录的 `conversations-*.sqlite3`，它不是裁剪后的模型记忆，也尚未加密。
+
+诊断与存储维护无需调用模型：
+
+```bash
+codemate tasks list --workspace /path/to/project
+codemate tasks inspect TASK_ID --workspace /path/to/project
+codemate doctor --workspace /path/to/project
+codemate tasks gc --days 30 --workspace /path/to/project
+codemate tasks backup /path/to/new-agent-backup.sqlite3 --workspace /path/to/project
+```
+
+GC 默认仅预览；仅 `--apply` 才删除满足保留期限且未再次修改的已交付工作树。未交付补丁始终保留。备份命令仅覆盖 Agent 数据库，不包含工作树、聊天历史和记忆。接口、限制、备份/恢复及验收见 [阶段 B 实施与验收](docs/engineering/zh/17-阶段B实施与验收.md)。当前工作区另已接入 Web 编码任务、补丁审批、沙箱验证、显式交付/回退和累计预算；阶段 C 的浏览器与发布验收仍需收尾。
 
 ## Agent CLI
 

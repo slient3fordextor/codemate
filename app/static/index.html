@@ -8,6 +8,11 @@
       name="description"
       content="CodeMate 本地 AI 工作台。"
     />
+    <meta name="theme-color" content="#f5f7fb" />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:title" content="CodeMate · 本地 AI 工作台" />
+    <meta property="og:description" content="在本机安全地对话、理解项目并交付代码。" />
+    <meta property="og:type" content="website" />
     <script src="/static/theme.js"></script>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -19,7 +24,7 @@
           <span class="brand-mark" aria-hidden="true">CM</span>
           <div>
             <strong>CodeMate</strong>
-            <span>local AI workspace</span>
+            <span>LOCAL AI WORKSPACE</span>
           </div>
         </div>
         <button class="sidebar-new-task" id="newSessionSidebarButton" type="button">
@@ -28,16 +33,20 @@
         </button>
         <nav class="sidebar-nav" aria-label="工作区导航">
           <p class="sidebar-label">工作区</p>
-          <a class="sidebar-link active" href="#messages" aria-current="page">
+          <a id="chatViewButton" class="sidebar-link active" href="#messages" aria-current="page">
             <span class="nav-icon" aria-hidden="true">◈</span>
             当前对话
           </a>
+          <button id="agentViewButton" type="button" class="sidebar-link"><span class="nav-icon" aria-hidden="true">›_</span>编码任务</button>
         </nav>
         <div class="task-history">
+          <input id="sessionSearch" type="search" aria-label="搜索会话" placeholder="搜索会话或消息" />
           <div class="task-history-head">
             <p class="sidebar-label">最近任务</p>
           <span class="task-count" id="taskCount">1</span>
           </div>
+          <button id="moreSessions" type="button" hidden>加载更多会话</button>
+          <details><summary>旧快捷输入</summary><div id="legacyPrompts" hidden></div></details>
           <div id="taskHistoryList">
             <button class="task-item active" type="button">
               <span class="task-status" aria-hidden="true"></span>
@@ -62,11 +71,13 @@
               <button type="button" class="settings-nav-item active" data-settings-section="overview">⌘ <span>常规</span></button>
               <button type="button" class="settings-nav-item" data-settings-section="appearance">◌ <span>外观</span></button>
               <button type="button" class="settings-nav-item" data-settings-section="models">◇ <span>模型设置</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="profiles">≡ <span>模型档案</span></button>
               <button type="button" class="settings-nav-item" data-settings-section="browser">◉ <span>浏览器控制</span></button>
               <button type="button" class="settings-nav-item" data-settings-section="computer">▣ <span>电脑控制</span></button>
               <button type="button" class="settings-nav-item" data-settings-section="shortcuts">⌨ <span>键盘快捷键</span></button>
               <p class="sidebar-label settings-group-label">Agent 能力</p>
               <button type="button" class="settings-nav-item" data-settings-section="memory">♧ <span>记忆</span></button>
+              <button type="button" class="settings-nav-item" data-settings-section="archive">↧ <span>归档会话</span></button>
               <button type="button" class="settings-nav-item" data-settings-section="subagents">♙ <span>子智能体</span></button>
               <button type="button" class="settings-nav-item" data-settings-section="plugins">⊞ <span>插件</span></button>
               <button type="button" class="settings-nav-item" data-settings-section="mcp">♧ <span>MCP 服务器</span></button>
@@ -85,17 +96,39 @@
               <button type="button" class="secondary model-close" id="modelCloseButton">关闭</button>
             </div>
             <section class="settings-overview" id="settingsOverview">
-              <div class="settings-tabs"><button type="button" class="active">应用用量</button><button type="button">个人套餐</button></div>
-              <div class="usage-summary"><div><strong>0</strong><span>累计 Token 数</span></div><div><strong>0</strong><span>峰值 Token 数</span></div><div><strong>0 分钟</strong><span>最长聊天时长</span></div><div><strong>0 天</strong><span>当前连续天数</span></div><div><strong>0 天</strong><span>最长连续天数</span></div></div>
-              <div class="usage-card"><div class="usage-card-head"><strong>Token 活动</strong><span>每日　每周　累计</span></div><div class="usage-grid" aria-label="Token 活动示意图"></div><small>10月　　 11月　　 12月　　 1月　　 2月　　 3月　　 4月　　 5月　　 6月　　 7月　　 8月　　 9月</small></div>
-              <h3>时间范围 <span>近 7 日　近 30 日</span></h3><div class="usage-card usage-chart"><strong>每日 Token 趋势图</strong><div class="chart-line"></div></div>
+              <p id="realUsage" role="status">正在读取</p>
+              <label class="inline-check"><input id="showMetrics" type="checkbox" checked />显示本次请求指标</label>
             </section>
             <section class="settings-options" id="settingsOptions">
-              <section class="theme-picker settings-option" data-settings-panel="appearance" aria-label="切换皮肤">
-                <h3>外观</h3><div class="theme-options"><button type="button" data-theme-choice="princess" aria-pressed="true"><span class="theme-swatch princess" aria-hidden="true"></span>梦幻公主粉</button><button type="button" data-theme-choice="starry" aria-pressed="false"><span class="theme-swatch starry" aria-hidden="true"></span>星空玻璃</button></div>
+              <section class="settings-option profile-editor" data-settings-panel="profiles" hidden aria-label="模型档案">
+                <h3>模型档案</h3>
+                <label>已保存档案<select id="profileSelect"><option value="">新建档案</option></select></label>
+                <label>名称<input id="profileLabel" maxlength="80" placeholder="例如：本地验证" /></label>
+                <label>Provider<select id="profileProvider"><option>mock</option><option>openai_compatible</option><option>anthropic</option><option>claude</option><option>ollama</option><option>deepseek</option><option>qwen</option><option>zhipu</option><option>moonshot</option><option>baichuan</option></select></label>
+                <label>Base URL<input id="profileUrl" type="url" /></label>
+                <label>Model<input id="profileModel" value="mock-model" /></label>
+                <label>API Key<input id="profileKey" type="password" autocomplete="new-password" placeholder="留空保留已有密钥" /></label>
+                <label class="inline-check"><input id="profileClearKey" type="checkbox" />清空密钥</label>
+                <div class="agent-fields"><label>超时（秒）<input id="profileTimeout" type="number" min="1" value="60" /></label><label>上下文窗口<input id="profileContext" type="number" min="1" value="32768" /></label></div>
+                <div class="agent-actions"><button id="profileSave" type="button">保存档案</button><button id="profileCheck" type="button" class="secondary">连接检查</button><button id="profileDelete" type="button" class="secondary" title="删除档案" aria-label="删除档案">×</button></div>
+                <p id="profileStatus" role="status"></p>
+              </section>
+              <section class="settings-option" data-settings-panel="memory" aria-label="记忆管理">
+                <h3>记忆</h3><p id="memoryCapabilities">未读取</p>
+                <button id="refreshMemory" type="button">刷新</button>
+                <div class="memory-actions">
+                  <button type="button" data-memory-clear="session">忘记当前会话</button>
+                  <button type="button" data-memory-clear="project" data-memory-managed>清除项目记忆</button>
+                  <button type="button" data-memory-clear="global-preferences" data-memory-managed>清除全局偏好</button>
+                </div>
+                <h4>偏好</h4><div id="memoryPreferences"></div>
+                <h4>冲突记录</h4><pre id="memoryConflicts"></pre>
+              </section>
+              <section class="theme-picker settings-option" data-settings-panel="appearance" aria-label="切换主题">
+                <h3>外观</h3><div class="theme-options"><button type="button" data-theme-choice="princess" aria-pressed="true"><span class="theme-swatch princess" aria-hidden="true"></span>日光工作台</button><button type="button" data-theme-choice="starry" aria-pressed="false"><span class="theme-swatch starry" aria-hidden="true"></span>星夜工作台</button></div>
               </section>
               <section class="computer-settings settings-option" data-settings-panel="computer" aria-label="电脑控制"><h3>电脑控制</h3><label class="inline-check"><input id="computerMode" type="checkbox" />允许 Agent 控制本机</label><p class="archive-empty">Linux X11 · 每次动作确认。当前支持窗口、鼠标和键盘。</p></section>
-              <section class="archive-panel settings-option" data-settings-panel="archive" aria-label="归档任务"><h3>归档任务 <span id="archivedCount">0</span></h3><div class="archive-list" id="archiveList"></div><p class="archive-empty" id="archiveEmpty">暂无归档任务</p></section>
+              <section class="archive-panel settings-option" data-settings-panel="archive" aria-label="归档会话"><h3>归档会话 <span id="archivedCount">0</span></h3><div class="archive-list" id="archiveList"></div><button id="moreArchived" type="button" hidden>加载更多归档</button><p class="archive-empty" id="archiveEmpty">暂无归档会话</p></section>
             </section>
             <section class="model-presets settings-option" data-settings-panel="models"><h3>模型列表</h3><input class="model-search" id="modelSearchInput" type="search" placeholder="搜索模型或供应商" autocomplete="off" /><div class="model-list" id="modelPresetList" aria-label="模型列表"></div></section>
             <label>
@@ -161,27 +194,72 @@
         </div>
       </dialog>
 
-      <div class="task-context-menu" id="taskContextMenu" role="menu" hidden>
-        <button type="button" role="menuitem" data-context-action="rename">重命名</button>
-        <button type="button" role="menuitem" data-context-action="archive">归档任务</button>
-        <button type="button" role="menuitem" data-context-action="delete">删除任务</button>
-      </div>
+        <section id="agentWorkspace" hidden aria-label="编码任务工作区">
+          <div class="agent-heading"><h1>编码任务</h1><span id="agentStatus" role="status">就绪</span><button id="agentRefresh" type="button" class="secondary" title="刷新任务" aria-label="刷新任务">↻</button></div>
+          <p id="agentError" role="alert"></p>
+          <div class="agent-layout">
+            <aside class="agent-task-list" aria-label="任务列表"><button id="agentNew" type="button">＋ 新建编码任务</button><div id="agentTasks"></div><button id="agentMore" type="button" class="secondary" hidden>加载更多任务</button></aside>
+            <div class="agent-main">
+              <form id="agentCreateForm">
+                <label>任务目标<textarea id="agentObjective" rows="4" maxlength="16000" required placeholder="描述需要修改的代码与验收条件"></textarea></label>
+                <div class="agent-fields"><label>权限<select id="agentMode"><option value="confirm">逐项确认</option><option value="readonly">只读分析</option><option value="agent">工作树内自主执行</option></select></label><label>模型档案<select id="agentProfile"><option value="">当前默认模型</option></select></label></div>
+                <div class="agent-fields"><label>累计轮次上限<input id="agentRounds" type="number" min="1" max="100" value="30" required /></label><label>累计 Token 上限<input id="agentTokens" type="number" min="1000" max="1000000" step="1000" value="120000" required /></label></div>
+                <button id="agentCreate" type="submit">创建隔离任务</button>
+              </form>
+              <section id="agentDetail" hidden>
+                <h2 id="agentTitle"></h2><p id="agentMeta"></p><p id="agentBudget"></p>
+                <div class="agent-actions"><button id="agentRun" type="button">运行 / 恢复</button><button id="agentStop" type="button" class="secondary" title="停止任务" aria-label="停止任务" disabled>■</button></div>
+                <section id="agentApproval" hidden aria-label="待审批动作"><h3>待审批动作</h3><p id="agentApprovalMeta"></p><pre id="agentApprovalPreview"></pre><div class="agent-actions"><button id="agentApprove" type="button">批准本次动作</button><button id="agentDeny" type="button" class="secondary">拒绝</button></div></section>
+                <p id="agentAnswer"></p>
+                <details open><summary>代码差异 <span id="agentDiffState"></span></summary><pre id="agentDiff"></pre></details>
+                <div class="agent-validation"><label>验证模板<select id="agentTemplate"></select></label><button id="agentValidate" type="button" class="secondary">沙箱验证</button></div>
+                <div class="agent-actions"><button id="agentReview" type="button" class="secondary">差异评审</button><button id="agentExportReview" type="button" class="secondary" title="导出评审" aria-label="导出评审">↓</button><button id="agentDeliver" type="button" disabled>交付到项目</button><button id="agentRollback" type="button" class="secondary" disabled>回退本次交付</button></div>
+                <pre id="agentReviewReport" hidden></pre>
+                <details open><summary>执行与验证证据</summary><div id="agentNodes"></div></details>
+                <details><summary>运行历史</summary><div id="agentRuns"></div></details>
+              </section>
+            </div>
+          </div>
+        </section>
 
         <div class="welcome" id="welcome">
-          <p class="welcome-brand">CodeMate</p>
-          <h1>今天，我们一起完成什么？</h1>
-          <p>从一个想法、一段代码，或一个待解决的问题开始。</p>
+          <div class="welcome-orb" aria-hidden="true"><span>CM</span></div>
+          <p class="welcome-brand">CODEMATE / LOCAL FIRST</p>
+          <h1>把想法，变成可交付的代码</h1>
+          <p>直接描述目标，CodeMate 会理解项目上下文、拆解任务并保留每一步证据。</p>
+          <div class="welcome-signals" aria-label="工作区能力">
+            <span><i aria-hidden="true">⌘</i> 项目上下文</span>
+            <span><i aria-hidden="true">↯</i> 流式响应</span>
+            <span><i aria-hidden="true">✓</i> 可审查交付</span>
+          </div>
         </div>
         <section class="messages" id="messages" aria-live="polite" aria-label="消息"></section>
+        <div class="conversation-tools">
+          <button id="moreMessages" type="button" hidden>加载更多消息</button>
+          <select id="exportFormat" aria-label="导出格式"><option value="markdown">Markdown</option><option value="json">JSON</option></select>
+          <button id="exportSession" type="button" title="导出会话" aria-label="导出会话">↓</button>
+          <button id="contextToggle" type="button">项目上下文</button>
+          <span id="connectionStatus" role="status">就绪</span>
+        </div>
+        <p id="workspaceError" role="alert"></p>
+        <section id="projectPanel" class="project-panel" hidden aria-label="项目上下文">
+          <div><span id="projectSummary"></span><div id="projectFiles"></div></div>
+          <div class="project-reader"><input id="projectPath" aria-label="上下文文件路径" readonly /><textarea id="projectPreview" aria-label="文件正文与选择文本" readonly></textarea>
+            <div><button id="attachFile" type="button">附加正文</button><button id="attachSelection" type="button">附加选择</button><button id="attachDiff" type="button">附加差异</button></div>
+          </div>
+        </section>
+        <div id="contextAttachments" aria-label="本次发送的项目上下文"></div>
+        <div class="request-metrics" id="requestMetrics" aria-live="polite"></div>
 
         <form class="composer" id="chatForm" aria-label="发送消息">
         <label class="message-label" for="messageInput">消息</label>
-        <textarea id="messageInput" rows="4" placeholder="描述任务，或粘贴代码与报错信息…" required></textarea>
+        <textarea id="messageInput" rows="4" maxlength="16000" aria-describedby="messageHint messageCount" placeholder="描述任务，或粘贴代码与报错信息…" required></textarea>
         <div class="composer-actions">
 
           <select class="composer-model" id="composerModelSelect" aria-label="选择模型"></select>
 
-          <p class="send-hint">Ctrl/⌘ + Enter</p>
+          <p class="send-hint" id="messageHint">Ctrl/⌘ + Enter 发送</p>
+          <span class="message-count" id="messageCount" aria-live="polite">0 / 16000</span>
           <button type="button" class="secondary icon-button" id="newSessionButton" hidden aria-label="新会话">＋</button>
           <button type="submit" class="icon-button send-button" id="sendButton" aria-label="发送">↑</button>
         </div>
@@ -195,6 +273,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260707-restore-main-selects" type="module"></script>
+    <script src="/static/app.js?v=phase-c" type="module"></script>
   </body>
 </html>

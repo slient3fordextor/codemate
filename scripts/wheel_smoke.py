@@ -36,6 +36,7 @@ with urlopen(BASE_URL + "/") as response:
 assets = Assets()
 assets.feed(html)
 assets.paths.add("/static/computer.js")
+assets.paths.update({"/static/workspace.js", "/static/stream.js", "/static/agent.js"})
 assert {"/static/app.js", "/static/styles.css", "/static/theme.js"} <= assets.paths
 for path in assets.paths:
     with urlopen(BASE_URL + path) as response:

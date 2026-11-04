@@ -152,6 +152,15 @@ class LoggingConfig(BaseModel):
 
 
 class Settings(BaseSettings):
+    agent_max_concurrency: int = Field(default=2, ge=1, le=8)
+    agent_timeout_seconds: float = Field(default=900, gt=0, le=3600)
+    agent_approval_timeout_seconds: float = Field(default=120, gt=0, le=600)
+    agent_max_rounds: int = Field(default=30, ge=1, le=100)
+    agent_max_tokens: int = Field(default=120000, ge=1000, le=1000000)
+    agent_max_replans: int = Field(default=3, ge=0, le=10)
+    chat_max_concurrency: int = Field(default=4, ge=1, le=32)
+    chat_timeout_seconds: float = Field(default=300, gt=0, le=3600)
+    chat_metrics_enabled: bool = True
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

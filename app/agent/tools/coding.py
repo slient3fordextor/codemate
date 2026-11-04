@@ -130,6 +130,9 @@ class ControlledToolExecutor:
     def cacheable(self, tool: str) -> bool:
         return tool in {definition["name"] for definition in self._readonly.definitions}
 
+    def cancel(self) -> None:
+        self._sandbox.cancel()
+
     def completion_error(self) -> str | None:
         if self._workspace_revision and self._validated_revision != self._workspace_revision:
             return "Latest task worktree edits do not have successful command evidence"

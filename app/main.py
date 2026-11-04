@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, status
@@ -6,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.health import build_health_response
 from app.api.v1.router import api_router
+from app.core.body_limit import RequestBodyLimitMiddleware
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
@@ -15,6 +17,7 @@ from app.core.middleware import (
     RequestIdMiddleware,
     access_log_middleware,
 )
+from app.services.conversations import ConversationStore
 from app.services.persistent_memory import SQLiteSessionMemoryStore
 from app.services.session_memory import InMemorySessionMemoryStore
 
@@ -38,6 +41,11 @@ def create_app() -> FastAPI:
         title=settings.app.name,
         version=settings.app.version,
     )
+    workspace_key = hashlib.sha256(str(settings.workspace.root).encode()).hexdigest()[:16]
+    app.state.conversation_store = ConversationStore(
+        settings.session_memory.database_path.parent / f"conversations-{workspace_key}.sqlite3"
+    )
+    app.add_middleware(RequestBodyLimitMiddleware)
     if settings.session_memory.backend == "sqlite":
         app.state.session_memory_store = SQLiteSessionMemoryStore(
             database_path=settings.session_memory.database_path,

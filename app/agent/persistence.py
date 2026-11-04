@@ -19,7 +19,7 @@ class PersistenceError(RuntimeError):
 class SQLiteAgentStore:
     """Transactional, append-only storage for graph events and loop checkpoints."""
 
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser().resolve()
@@ -32,30 +32,35 @@ class SQLiteAgentStore:
 
     def append_graph(self, graph: ExecutionGraph) -> None:
         with self._transaction() as connection:
-            for event in graph.events:
-                row = self._event_row(event)
-                existing = connection.execute(
-                    """
+            self.append_graph_in_transaction(connection, graph)
+
+    def append_graph_in_transaction(
+        self, connection: sqlite3.Connection, graph: ExecutionGraph
+    ) -> None:
+        for event in graph.events:
+            row = self._event_row(event)
+            existing = connection.execute(
+                """
                     SELECT event_type, at, node_id, previous_state, state, detail_json
                     FROM graph_events WHERE graph_id = ? AND sequence = ?
                     """,
-                    (event.graph_id, event.sequence),
-                ).fetchone()
-                if existing is not None:
-                    if tuple(existing) != row[2:]:
-                        raise PersistenceError(
-                            f"Graph event conflict at {event.graph_id}:{event.sequence}"
-                        )
-                    continue
-                connection.execute(
-                    """
+                (event.graph_id, event.sequence),
+            ).fetchone()
+            if existing is not None:
+                if tuple(existing) != row[2:]:
+                    raise PersistenceError(
+                        f"Graph event conflict at {event.graph_id}:{event.sequence}"
+                    )
+                continue
+            connection.execute(
+                """
                     INSERT INTO graph_events (
                         graph_id, sequence, event_type, at, node_id,
                         previous_state, state, detail_json
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    row,
-                )
+                row,
+            )
 
     def load_graph(self, graph_id: str) -> ExecutionGraph:
         with self._connect() as connection:
@@ -263,6 +268,42 @@ class SQLiteAgentStore:
             )
             if current == 1:
                 connection.execute("ALTER TABLE tasks ADD COLUMN validated_patch_digest TEXT")
+            for statement in (
+                """CREATE TABLE IF NOT EXISTS task_budgets (
+                    task_id TEXT PRIMARY KEY REFERENCES tasks(task_id),
+                    max_rounds INTEGER NOT NULL, max_tokens INTEGER NOT NULL,
+                    max_replans INTEGER NOT NULL, rounds INTEGER NOT NULL DEFAULT 0,
+                    tokens INTEGER NOT NULL DEFAULT 0, replans INTEGER NOT NULL DEFAULT 0,
+                    runs INTEGER NOT NULL DEFAULT 0, messages TEXT NOT NULL DEFAULT '[]'
+                )""",
+                """CREATE TABLE IF NOT EXISTS task_runs (
+                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(task_id),
+                    mode TEXT NOT NULL, model TEXT NOT NULL, request_id TEXT,
+                    status TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT,
+                    rounds INTEGER NOT NULL DEFAULT 0, tokens INTEGER NOT NULL DEFAULT 0
+                )""",
+                """CREATE TABLE IF NOT EXISTS model_reservations (
+                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL,
+                    reserved INTEGER NOT NULL, actual INTEGER
+                )""",
+                """CREATE TABLE IF NOT EXISTS task_run_graphs (
+                    run_id TEXT PRIMARY KEY REFERENCES task_runs(id), graph_id TEXT NOT NULL
+                )""",
+                """CREATE TABLE IF NOT EXISTS task_approvals (
+                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL,
+                    tool TEXT NOT NULL, preview TEXT NOT NULL, patch_digest TEXT NOT NULL,
+                    status TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+                )""",
+                """CREATE TABLE IF NOT EXISTS model_profiles (
+                    id TEXT PRIMARY KEY, label TEXT NOT NULL UNIQUE, config TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL
+                )""",
+                """CREATE TABLE IF NOT EXISTS task_specs (
+                    task_id TEXT PRIMARY KEY REFERENCES tasks(task_id), mode TEXT NOT NULL,
+                    profile_id TEXT, template_id TEXT
+                )""",
+            ):
+                connection.execute(statement)
             connection.execute(f"PRAGMA user_version = {self.SCHEMA_VERSION}")
 
     @contextmanager

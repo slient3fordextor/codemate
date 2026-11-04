@@ -7,6 +7,8 @@
   function apply(theme, persist = false) {
     if (!themes.includes(theme)) theme = 'princess';
     document.documentElement.dataset.theme = theme;
+    const themeColor = document.querySelector?.('meta[name="theme-color"]');
+    if (themeColor) themeColor.setAttribute('content', theme === 'starry' ? '#0b1220' : '#f5f7fb');
     document.querySelectorAll('[data-theme-choice]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.themeChoice === theme));
     });

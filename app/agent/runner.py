@@ -1,18 +1,21 @@
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import aclosing, suppress
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.adapters.models.base import (
     ModelAdapter,
+    ModelChunk,
     ModelProviderError,
     ModelRequest,
     ModelToolDefinition,
 )
+from app.agent.budget import TaskBudget
 from app.agent.graph import EdgeTrigger, ExecutionGraph, NodeType, ReActBudget, ReActDecision
 from app.agent.graph.models import GraphEdge, NodePolicy
 from app.agent.tools import ReadonlyToolError, ToolExecutionResult
@@ -74,6 +77,7 @@ class CollectedModelResponse:
     content: str
     tool_calls: tuple[NativeToolCall, ...]
     tokens: int
+    reservation_id: str | None = None
 
 
 ProgressCallback = Callable[[AgentProgressEvent], None]
@@ -134,6 +138,7 @@ class ReadonlyAgentRunner:
         max_decision_errors: int = 2,
         context_budget_planner: ContextBudgetPlanner | None = None,
         max_total_tokens: int = 120_000,
+        task_budget: TaskBudget | None = None,
     ) -> None:
         if max_decision_errors < 0:
             raise ValueError("max_decision_errors cannot be negative")
@@ -150,6 +155,8 @@ class ReadonlyAgentRunner:
         )
         self._max_total_tokens = max_total_tokens
         self._native_tools = bool(getattr(model_adapter, "supports_tools", False))
+        self._task_budget = task_budget
+        self._live_messages: list[ChatMessage] = []
 
     async def run(
         self,
@@ -159,20 +166,52 @@ class ReadonlyAgentRunner:
         approve_round: ApprovalCallback | None = None,
         approve_tool: ToolApprovalCallback | None = None,
         checkpoint: GraphCheckpoint | None = None,
+        initial_messages: list[ChatMessage] | None = None,
     ) -> AgentRunResult:
         if not objective.strip():
             raise ValueError("Agent objective cannot be empty")
         graph = ExecutionGraph()
-        messages = [
-            ChatMessage(role="system", content=self._system_prompt()),
-            ChatMessage(role="user", content=objective.strip()),
-        ]
+        messages = (
+            list(initial_messages)
+            if initial_messages
+            else [
+                ChatMessage(role="system", content=self._system_prompt()),
+                ChatMessage(role="user", content=objective.strip()),
+            ]
+        )
+        if initial_messages:
+            messages[0] = ChatMessage(role="system", content=self._system_prompt())
+            messages.append(
+                ChatMessage(
+                    role="user",
+                    content=(
+                        f"Continue this retained task: {objective.strip()}. "
+                        "Inspect current files before "
+                        "acting. Old patch proposal IDs and approvals have expired. Do not assume "
+                        "an interrupted action succeeded; obtain fresh evidence and approvals."
+                    ),
+                )
+            )
+        self._live_messages = messages
         previous_node_id: str | None = None
         cache: dict[str, ToolExecutionResult] = {}
         tool_calls = 0
         round_number = 0
         decision_errors = 0
         tokens_used = 0
+
+        if self._task_budget and self._task_budget.snapshot()["rounds"] >= 15:
+            next_round = self._task_budget.snapshot()["rounds"] + 1
+            if approve_round is None or not await approve_round(next_round):
+                return AgentRunResult(
+                    AgentRunStatus.WAITING_APPROVAL,
+                    "",
+                    graph,
+                    0,
+                    0,
+                    0,
+                    error=f"Round {next_round} requires approval",
+                )
 
         while True:
             round_number += 1
@@ -223,6 +262,7 @@ class ReadonlyAgentRunner:
                 decision = self._parse_response(response)
             except ValueError as exc:
                 graph.fail(model_node_id, str(exc))
+                self._settle(response)
                 self._checkpoint(checkpoint, graph)
                 decision_errors += 1
                 self._emit(
@@ -262,6 +302,7 @@ class ReadonlyAgentRunner:
                 evidence_error = self._tools.completion_error()
                 if evidence_error is not None:
                     graph.fail(model_node_id, evidence_error)
+                    self._settle(response)
                     self._checkpoint(checkpoint, graph)
                     return AgentRunResult(
                         status=AgentRunStatus.NEEDS_EVIDENCE,
@@ -273,6 +314,7 @@ class ReadonlyAgentRunner:
                         error=evidence_error,
                     )
                 graph.succeed(model_node_id, {"decision": decision.model_dump(mode="json")})
+                self._settle(response)
                 self._checkpoint(checkpoint, graph)
                 answer = decision.answer or ""
                 self._emit(on_progress, "agent.completed", {"answer": answer})
@@ -286,6 +328,7 @@ class ReadonlyAgentRunner:
                 )
 
             graph.succeed(model_node_id, {"decision": decision.model_dump(mode="json")})
+            self._settle(response)
             self._checkpoint(checkpoint, graph)
 
             tool_node_id = f"tool.{round_number}"
@@ -347,8 +390,7 @@ class ReadonlyAgentRunner:
                 result = cache.get(cache_key)
                 if result is None:
                     tool_calls += 1
-                    result = await asyncio.to_thread(
-                        self._tools.execute,
+                    result = await self._execute_tool(
                         decision.tool or "",
                         decision.arguments,
                         approval_id=approval_id,
@@ -388,9 +430,13 @@ class ReadonlyAgentRunner:
                     ChatMessage(role="user", name="tool_result", content=result_message),
                 )
             )
+            self._checkpoint(checkpoint, graph)
             previous_node_id = tool_node_id
+            completed_rounds = (
+                self._task_budget.snapshot()["rounds"] if self._task_budget else round_number
+            )
             next_decision = self._react_budget.next_decision(
-                round_number,
+                completed_rounds,
                 has_new_evidence=not cached,
             )
             if next_decision is ReActDecision.STOP:
@@ -404,7 +450,7 @@ class ReadonlyAgentRunner:
                     error="ReAct stopped because the latest round produced no new evidence",
                 )
             if next_decision is ReActDecision.WAIT_FOR_APPROVAL:
-                approved = approve_round is not None and await approve_round(round_number + 1)
+                approved = approve_round is not None and await approve_round(completed_rounds + 1)
                 if not approved:
                     return AgentRunResult(
                         status=AgentRunStatus.WAITING_APPROVAL,
@@ -413,12 +459,12 @@ class ReadonlyAgentRunner:
                         rounds=round_number,
                         tool_calls=tool_calls,
                         tokens_used=tokens_used,
-                        error=f"Round {round_number + 1} requires approval",
+                        error=f"Round {completed_rounds + 1} requires approval",
                     )
                 approved_decision = self._react_budget.next_decision(
-                    round_number,
+                    completed_rounds,
                     has_new_evidence=not cached,
-                    approved_round=round_number + 1,
+                    approved_round=completed_rounds + 1,
                 )
                 if approved_decision is not ReActDecision.CONTINUE:
                     raise RuntimeError("Approved ReAct round did not continue")
@@ -428,6 +474,10 @@ class ReadonlyAgentRunner:
         parts: list[str] = []
         budget = self._context_budget_planner.budget_for(None)
         input_tokens = self._context_budget_planner.token_counter.count_messages(messages)
+        reservation_id = None
+        output_reserve = budget.output_reserve
+        if self._task_budget is not None:
+            reservation_id, output_reserve = self._task_budget.reserve(input_tokens, output_reserve)
         reported_input_tokens: int | None = None
         reported_output_tokens: int | None = None
         tool_calls: list[dict[str, str]] = []
@@ -435,40 +485,67 @@ class ReadonlyAgentRunner:
             messages=list(messages),
             model=self._model,
             stream=True,
-            max_tokens=budget.output_reserve,
+            max_tokens=output_reserve,
             tools=self._tools.model_definitions if self._native_tools else (),
         )
-        async for chunk in self._model_adapter.stream_chat(request):
-            if chunk.type == "message.delta" and chunk.content:
-                parts.append(chunk.content)
-            if chunk.input_tokens is not None:
-                reported_input_tokens = chunk.input_tokens
-            if chunk.output_tokens is not None:
-                reported_output_tokens = chunk.output_tokens
-            if chunk.type == "tool.call.start":
-                tool_calls.append(
-                    {
-                        "id": chunk.tool_call_id or f"tool-call-{len(tool_calls) + 1}",
-                        "name": chunk.tool_name or "",
-                        "arguments": chunk.tool_arguments or "",
-                    }
-                )
-            elif chunk.type == "tool.call.delta":
-                if not tool_calls:
+        done = False
+        output_size = 0
+        async with aclosing(
+            cast(AsyncGenerator[ModelChunk, None], self._model_adapter.stream_chat(request))
+        ) as upstream:
+            async for chunk in upstream:
+                if chunk.type == "message.done":
+                    done = True
+                if chunk.type == "message.delta" and chunk.content:
+                    parts.append(chunk.content)
+                    output_size += len(chunk.content)
+                if chunk.input_tokens is not None:
+                    if chunk.input_tokens < 0:
+                        raise ModelProviderError("INVALID_USAGE", "Negative model token usage")
+                    reported_input_tokens = chunk.input_tokens
+                if chunk.output_tokens is not None:
+                    if chunk.output_tokens < 0:
+                        raise ModelProviderError("INVALID_USAGE", "Negative model token usage")
+                    reported_output_tokens = chunk.output_tokens
+                if chunk.type == "tool.call.start":
+                    if len(tool_calls) >= 8:
+                        raise ModelProviderError("MODEL_OUTPUT_TOO_LARGE", "Too many tool calls")
+                    output_size += len(chunk.tool_arguments or "") + len(chunk.tool_name or "")
                     tool_calls.append(
                         {
-                            "id": chunk.tool_call_id or "tool-call-1",
+                            "id": chunk.tool_call_id or f"tool-call-{len(tool_calls) + 1}",
                             "name": chunk.tool_name or "",
-                            "arguments": "",
+                            "arguments": chunk.tool_arguments or "",
                         }
                     )
-                current = tool_calls[-1]
-                if chunk.tool_name:
-                    current["name"] += chunk.tool_name
-                if chunk.tool_arguments:
-                    current["arguments"] += chunk.tool_arguments
+                elif chunk.type == "tool.call.delta":
+                    if not tool_calls:
+                        tool_calls.append(
+                            {
+                                "id": chunk.tool_call_id or "tool-call-1",
+                                "name": chunk.tool_name or "",
+                                "arguments": "",
+                            }
+                        )
+                    current = tool_calls[-1]
+                    if chunk.tool_name:
+                        current["name"] += chunk.tool_name
+                        output_size += len(chunk.tool_name)
+                    if chunk.tool_arguments:
+                        current["arguments"] += chunk.tool_arguments
+                        output_size += len(chunk.tool_arguments)
+                if output_size > 200000:
+                    raise ModelProviderError(
+                        "MODEL_OUTPUT_TOO_LARGE", "Agent model output exceeds limit"
+                    )
+        if not done:
+            raise ModelProviderError(
+                "INCOMPLETE_STREAM", "Agent model stream ended without completion"
+            )
         content = "".join(parts).strip()
-        output_tokens = self._context_budget_planner.token_counter.count_text(content)
+        output_tokens = self._context_budget_planner.token_counter.count_text(
+            content + json.dumps(tool_calls)
+        )
         return CollectedModelResponse(
             content=content,
             tool_calls=tuple(
@@ -481,7 +558,24 @@ class ReadonlyAgentRunner:
             ),
             tokens=(reported_input_tokens or input_tokens)
             + (reported_output_tokens or output_tokens),
+            reservation_id=reservation_id,
         )
+
+    def _settle(self, response: CollectedModelResponse) -> None:
+        if self._task_budget is not None and response.reservation_id is not None:
+            self._task_budget.settle(response.reservation_id, response.tokens)
+
+    async def _execute_tool(self, *args: Any, **kwargs: Any) -> ToolExecutionResult:
+        pending = asyncio.create_task(asyncio.to_thread(self._tools.execute, *args, **kwargs))
+        try:
+            return await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            cancel = getattr(self._tools, "cancel", None)
+            if cancel is not None:
+                await asyncio.to_thread(cancel)
+            with suppress(Exception):
+                await pending
+            raise
 
     def _fit_context(self, messages: list[ChatMessage]) -> None:
         while True:
@@ -562,7 +656,8 @@ class ReadonlyAgentRunner:
         if callback is not None:
             callback(AgentProgressEvent(event_type, data))
 
-    @staticmethod
-    def _checkpoint(callback: GraphCheckpoint | None, graph: ExecutionGraph) -> None:
+    def _checkpoint(self, callback: GraphCheckpoint | None, graph: ExecutionGraph) -> None:
+        if self._task_budget is not None:
+            self._task_budget.checkpoint(graph, self._live_messages)
         if callback is not None:
             callback(graph)

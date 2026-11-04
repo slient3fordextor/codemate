@@ -1,4 +1,7 @@
 import { runComputerTask } from "/static/computer.js";
+import { createWorkspace } from "/static/workspace.js";
+import { readSseStream } from "/static/stream.js";
+import { createAgentWorkspace } from "/static/agent.js";
 
 const form = document.querySelector("#chatForm");
 const input = document.querySelector("#messageInput");
@@ -26,15 +29,10 @@ const modelContextWindowInput = document.querySelector("#modelContextWindow");
 const clearApiKeyInput = document.querySelector("#clearApiKey");
 const modelKeyState = document.querySelector("#modelKeyState");
 const composerModelSelect = document.querySelector("#composerModelSelect");
+const messageCount = document.querySelector("#messageCount");
 const quickPrompts = document.querySelectorAll("[data-prompt]");
 const modelSettingsButton = document.querySelector("#modelSettingsButton");
 const newSessionSidebarButton = document.querySelector("#newSessionSidebarButton");
-const taskHistoryList = document.querySelector("#taskHistoryList");
-const taskCount = document.querySelector("#taskCount");
-const archiveList = document.querySelector("#archiveList");
-const archivedCount = document.querySelector("#archivedCount");
-const archiveEmpty = document.querySelector("#archiveEmpty");
-const taskContextMenu = document.querySelector("#taskContextMenu");
 const settingsNavItems = document.querySelectorAll("[data-settings-section]");
 const settingsOverview = document.querySelector("#settingsOverview");
 const settingsOptions = document.querySelector("#settingsOptions");
@@ -42,14 +40,13 @@ const settingsTitle = document.querySelector("#settingsTitle");
 const settingsEyebrow = document.querySelector("#settingsEyebrow");
 const settingsForm = document.querySelector("#modelConfigForm");
 const settingsModelPresets = document.querySelector(".model-presets");
+const draftStorageKey = "codemate.composerDraft";
 
 let sessionId = localStorage.getItem("codemate.sessionId") || "";
 let activeController = null;
 let modelConfigLoaded = false;
-let taskHistory = readTaskHistory();
-let archivedTasks = readStoredList("codemate.archivedTasks");
-let contextTaskTitle = "";
-let archiveConfirmTimer = null;
+let preparingSession = false;
+const agentWorkspace = createAgentWorkspace({ isChatBusy: () => !!activeController || preparingSession });
 
 const modelPresets = [
   {
@@ -116,16 +113,33 @@ const providerMarks = {
   zhipu: "ZP",
 };
 
+const workspaceState = createWorkspace({ appendMessage, setStatus,
+  getSession: () => sessionId, isBusy: () => Boolean(activeController),
+  setSession: (id) => { sessionId = id; localStorage.setItem("codemate.sessionId", id); },
+});
+let followOutput = true;
+messages.addEventListener("scroll", () => {
+  followOutput = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = input.value.trim();
-  if (!message || activeController) {
+  if (!message || activeController || preparingSession || agentWorkspace.isBusy()) {
+    return;
+  }
+  if (!navigator.onLine) {
+    setStatus("网络不可用", "error");
     return;
   }
 
+  preparingSession = true;
+  try { await workspaceState.ensure(); } catch (error) { setStatus(error.message, "error"); return; }
+  finally { preparingSession = false; }
   appendMessage("user", message);
-  rememberTask(message);
   input.value = "";
+  try { sessionStorage.removeItem(draftStorageKey); } catch { /* Storage is optional. */ }
+  updateComposerMetrics();
   if (document.querySelector("#computerMode")?.checked) {
     activeController = new AbortController();
     setBusy(true);
@@ -147,10 +161,7 @@ sendButton.addEventListener("click", () => {
 
 newSessionButton.addEventListener("click", () => {
   if (activeController) return;
-  sessionId = "";
-  localStorage.removeItem("codemate.sessionId");
-  messages.replaceChildren();
-  document.querySelector(".workspace").classList.add("is-empty");
+  workspaceState.newSession();
   input.focus();
 });
 
@@ -191,17 +202,47 @@ input.addEventListener("keydown", (event) => {
   }
 });
 
+function updateComposerMetrics() {
+  if (messageCount) {
+    messageCount.textContent = `${input.value.length.toLocaleString("zh-CN")} / 16,000`;
+  }
+  input.style.height = "auto";
+  input.style.height = `${Math.min(Math.max(input.scrollHeight, 82), 220)}px`;
+}
+
+input.addEventListener("input", updateComposerMetrics);
+try {
+  const draft = sessionStorage.getItem(draftStorageKey);
+  if (draft) input.value = draft;
+} catch { /* Storage is optional. */ }
+input.addEventListener("input", () => {
+  try { sessionStorage.setItem(draftStorageKey, input.value); } catch { /* Storage is optional. */ }
+});
+updateComposerMetrics();
+
+window.addEventListener("online", () => setStatus("已连接"));
+window.addEventListener("offline", () => setStatus("网络不可用", "error"));
+document.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    input.focus();
+  }
+  if (event.key === "Escape" && document.activeElement === input && !input.value) {
+    input.blur();
+  }
+});
+
 quickPrompts.forEach((button) => {
   button.addEventListener("click", () => {
     input.value = button.dataset.prompt || "";
+    updateComposerMetrics();
     input.focus();
   });
 });
 
 renderModelPresets();
 renderComposerModels();
-renderTaskHistory();
-renderArchivedTasks();
+workspaceState.initialize();
 void loadModelConfig();
 
 setSettingsSection("overview");
@@ -216,26 +257,12 @@ settingsNavItems.forEach((item) => {
   });
 });
 
-taskContextMenu?.addEventListener("click", (event) => {
-  const action = event.target.closest("[data-context-action]")?.dataset.contextAction;
-  if (!action || !contextTaskTitle) return;
-  const title = contextTaskTitle;
-  hideTaskContextMenu();
-  if (action === "rename") renameTask(title);
-  if (action === "archive") archiveTask(title);
-  if (action === "delete") deleteTask(title);
-});
-
-document.addEventListener("click", (event) => {
-  if (taskContextMenu && !taskContextMenu.contains(event.target)) hideTaskContextMenu();
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") hideTaskContextMenu();
-});
 
 function setSettingsSection(section) {
+  if (section === "overview") void workspaceState.stats().catch((error) => setStatus(error.message, "error"));
+  if (section === "memory") void workspaceState.memory().catch((error) => setStatus(error.message, "error"));
   const titles = {
+    archive: ["archive", "归档会话"],
     appearance: ["appearance", "外观"],
     browser: ["browser", "浏览器控制"],
     commands: ["commands", "命令"],
@@ -244,6 +271,7 @@ function setSettingsSection(section) {
     mcp: ["mcp", "MCP 服务器"],
     memory: ["memory", "记忆"],
     models: ["models", "模型设置"],
+    profiles: ["profiles", "模型档案"],
     overview: ["overview", "使用统计"],
     plugins: ["plugins", "插件"],
     shortcuts: ["shortcuts", "键盘快捷键"],
@@ -298,6 +326,8 @@ async function sendMessage(message) {
     message,
     current_file: currentFileInput?.value.trim() || null,
     selected_text: selectedTextInput?.value.trim() || null,
+    turn_id: crypto.randomUUID(),
+    context: workspaceState.context(),
     stream: true,
   };
   const temperature = parseOptionalNumber(modelTemperatureInput.value);
@@ -314,6 +344,7 @@ async function sendMessage(message) {
 
   try {
     let streamFailed = false;
+    let completed = false;
     const response = await fetch("/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -328,60 +359,25 @@ async function sendMessage(message) {
       throw new Error(`请求失败：HTTP ${response.status}`);
     }
 
-    await readSse(response.body, (eventName, data) => {
+    await readSseStream(response.body, (eventName, data) => {
+      if (eventName === "completion.done") completed = true;
       streamFailed = handleStreamEvent(eventName, data, assistant) || streamFailed;
     });
+    if (!completed && !streamFailed) throw new Error("连接中断，回答未完整保存");
     enhanceCodeBlocks(assistant.bubble);
     if (!streamFailed) {
       setStatus("就绪");
     }
   } catch (error) {
-    assistant.bubble.textContent =
-      error instanceof Error ? error.message : "请求失败，请稍后重试。";
-    setStatus("出错", "error");
+    const stopped = error?.name === "AbortError";
+    const note = document.createElement("small"); note.className = "turn-state";
+    note.textContent = stopped ? "已停止" : (error instanceof Error ? error.message : "请求失败");
+    assistant.bubble.after(note);
+    setStatus(stopped ? "已停止" : "出错", stopped ? "" : "error");
   } finally {
     activeController = null;
     setBusy(false);
-  }
-}
-
-async function readSse(body, onEvent) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
-    for (const rawEvent of events) {
-      const parsed = parseSseEvent(rawEvent);
-      if (parsed) {
-        onEvent(parsed.event, parsed.data);
-      }
-    }
-  }
-}
-
-function parseSseEvent(rawEvent) {
-  const lines = rawEvent.split("\n");
-  const eventLine = lines.find((line) => line.startsWith("event:"));
-  const dataLine = lines.find((line) => line.startsWith("data:"));
-  if (!eventLine || !dataLine) {
-    return null;
-  }
-
-  try {
-    return {
-      event: eventLine.slice("event:".length).trim(),
-      data: JSON.parse(dataLine.slice("data:".length).trim()),
-    };
-  } catch {
-    return null;
+    void workspaceState.refresh().catch((error) => setStatus(error.message, "error"));
   }
 }
 
@@ -395,12 +391,14 @@ function handleStreamEvent(eventName, data, assistant) {
   if (eventName === "message.delta" && data.content) {
     assistant.content += data.content;
     assistant.bubble.textContent = assistant.content;
-    scrollToBottom();
+    if (followOutput) scrollToBottom();
     return false;
   }
 
   if (eventName === "error") {
-    assistant.bubble.textContent = data.message || "模型服务返回错误。";
+    const note = document.createElement("small"); note.className = "turn-state";
+    note.textContent = data.message || "模型服务返回错误。";
+    assistant.bubble.after(note);
     setStatus("出错", "error");
     return true;
   }
@@ -408,6 +406,15 @@ function handleStreamEvent(eventName, data, assistant) {
     appendMessage("assistant", `记忆未保存：${data.message || "存储不可用"}`);
     setStatus("记忆警告", "error");
     return true;
+  }
+  if (eventName === "context.usage") {
+    document.querySelector("#requestMetrics").textContent = `上下文 ${data.input_tokens} / ${data.input_budget} Token${data.estimated ? "（估算）" : ""} · 记忆 ${data.memory_tokens} Token`;
+  }
+  if (eventName === "usage.update") {
+    document.querySelector("#requestMetrics").textContent += ` · 输入 ${data.input_tokens ?? "—"} / 输出 ${data.output_tokens ?? "—"} Token`;
+  }
+  if (eventName === "completion.done") {
+    document.querySelector("#requestMetrics").textContent += ` · 首字 ${data.first_token_ms ?? "—"} ms · 总计 ${data.duration_ms} ms · ${data.request_id || ""}`;
   }
   return false;
 }
@@ -779,6 +786,7 @@ function getCodeTitle(block) {
 
 function setBusy(isBusy) {
   sendButton.disabled = false;
+  messages.setAttribute("aria-busy", String(isBusy));
   sendButton.textContent = isBusy ? "■" : "↑";
   sendButton.setAttribute("aria-label", isBusy ? "停止生成" : "发送");
   newSessionButton.disabled = isBusy;
@@ -788,152 +796,6 @@ function setBusy(isBusy) {
   }
 }
 
-function readTaskHistory() {
-  return readStoredList("codemate.tasks");
-}
-
-function readStoredList(key) {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
-  } catch { return []; }
-}
-
-function rememberTask(message) {
-  const title = message.replace(/\s+/g, " ").trim().slice(0, 32) || "当前对话";
-  taskHistory = [title, ...taskHistory.filter((item) => item !== title)].slice(0, 6);
-  try {
-    localStorage.setItem("codemate.tasks", JSON.stringify(taskHistory));
-  } catch {
-    // Keep the current-page history when browser storage is unavailable.
-  }
-  renderTaskHistory();
-}
-
-function renderTaskHistory() {
-  if (!taskHistoryList) return;
-  const items = taskHistory.length ? taskHistory : ["当前对话"];
-  taskHistoryList.replaceChildren(...items.map((title, index) => {
-    const button = document.createElement("div");
-    button.setAttribute("role", "button");
-    button.tabIndex = 0;
-    button.className = `task-item ${index === 0 ? "active" : ""}`;
-    button.innerHTML = '<span class="task-status" aria-hidden="true"></span><span><strong></strong><small></small></span><span class="task-actions"><button type="button" class="task-action archive-action" aria-label="归档任务" title="归档">🗑</button></span>';
-    button.querySelector("strong").textContent = title;
-    button.querySelector("small").textContent = index === 0 ? "刚刚" : "最近";
-    button.addEventListener("click", () => { input.value = title; input.focus(); });
-    button.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); input.value = title; input.focus(); }
-    });
-    button.addEventListener("contextmenu", (event) => showTaskContextMenu(event, title));
-    button.querySelector(".archive-action").addEventListener("click", (event) => {
-      event.stopPropagation();
-      confirmArchive(event.currentTarget, title, button);
-    });
-    return button;
-  }));
-  if (taskCount) taskCount.textContent = String(items.length);
-}
-
-function confirmArchive(action, title, row) {
-  if (action.dataset.confirming === "true") {
-    archiveTask(title);
-    return;
-  }
-  window.clearTimeout(archiveConfirmTimer);
-  action.dataset.confirming = "true";
-  action.textContent = "✓";
-  action.setAttribute("aria-label", "确认归档");
-  action.title = "再次点击确认归档";
-  row.classList.add("archive-pending");
-  archiveConfirmTimer = window.setTimeout(() => {
-    action.dataset.confirming = "false";
-    action.textContent = "🗑";
-    action.setAttribute("aria-label", "归档任务");
-    action.title = "归档";
-    row.classList.remove("archive-pending");
-  }, 3000);
-}
-
-function archiveTask(title) {
-  taskHistory = taskHistory.filter((item) => item !== title);
-  archivedTasks = [title, ...archivedTasks.filter((item) => item !== title)].slice(0, 30);
-  window.clearTimeout(archiveConfirmTimer);
-  persistTaskLists();
-  renderTaskHistory();
-  renderArchivedTasks();
-}
-
-function renameTask(title) {
-  const nextTitle = window.prompt("重命名任务", title)?.replace(/\s+/g, " ").trim();
-  if (!nextTitle || nextTitle === title) return;
-  taskHistory = taskHistory.map((item) => (item === title ? nextTitle : item));
-  archivedTasks = archivedTasks.map((item) => (item === title ? nextTitle : item));
-  persistTaskLists();
-  renderTaskHistory();
-  renderArchivedTasks();
-}
-
-function deleteTask(title) {
-  if (!window.confirm(`确定删除任务“${title}”？此操作不可撤销。`)) return;
-  taskHistory = taskHistory.filter((item) => item !== title);
-  persistTaskLists();
-  renderTaskHistory();
-}
-
-function showTaskContextMenu(event, title) {
-  if (!taskContextMenu) return;
-  event.preventDefault();
-  contextTaskTitle = title;
-  taskContextMenu.hidden = false;
-  const menuWidth = 156;
-  const menuHeight = 132;
-  taskContextMenu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8))}px`;
-  taskContextMenu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))}px`;
-  taskContextMenu.querySelector("button")?.focus();
-}
-
-function hideTaskContextMenu() {
-  if (!taskContextMenu) return;
-  taskContextMenu.hidden = true;
-  contextTaskTitle = "";
-}
-
-function restoreTask(title) {
-  archivedTasks = archivedTasks.filter((item) => item !== title);
-  taskHistory = [title, ...taskHistory.filter((item) => item !== title)].slice(0, 6);
-  persistTaskLists();
-  renderTaskHistory();
-  renderArchivedTasks();
-}
-
-function deleteArchivedTask(title) {
-  archivedTasks = archivedTasks.filter((item) => item !== title);
-  persistTaskLists();
-  renderArchivedTasks();
-}
-
-function persistTaskLists() {
-  try {
-    localStorage.setItem("codemate.tasks", JSON.stringify(taskHistory));
-    localStorage.setItem("codemate.archivedTasks", JSON.stringify(archivedTasks));
-  } catch { /* Keep the current-page state when storage is unavailable. */ }
-}
-
-function renderArchivedTasks() {
-  if (!archiveList) return;
-  archiveList.replaceChildren(...archivedTasks.map((title) => {
-    const row = document.createElement("div");
-    row.className = "archive-item";
-    row.innerHTML = '<span class="archive-title"></span><button type="button" class="archive-action restore-action" aria-label="恢复任务" title="恢复">↥</button><button type="button" class="archive-action delete-action" aria-label="删除归档任务" title="删除">×</button>';
-    row.querySelector(".archive-title").textContent = title;
-    row.querySelector(".restore-action").addEventListener("click", () => restoreTask(title));
-    row.querySelector(".delete-action").addEventListener("click", () => deleteArchivedTask(title));
-    return row;
-  }));
-  if (archivedCount) archivedCount.textContent = String(archivedTasks.length);
-  if (archiveEmpty) archiveEmpty.hidden = archivedTasks.length > 0;
-}
 
 function setStatus(text, className = "") {
   if (!statusEl) {

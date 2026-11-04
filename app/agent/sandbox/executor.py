@@ -4,10 +4,12 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
+from typing import BinaryIO
 from uuid import uuid4
 
 from app.agent.graph import EvaluationEvidence, EvidenceKind
@@ -67,12 +69,28 @@ class BubblewrapExecutor:
         self._timeout_seconds = timeout_seconds
         self._max_output_bytes = max_output_bytes
         self._memory_limit_bytes = memory_limit_bytes
+        self._cancelled = threading.Event()
+        self._process_lock = threading.Lock()
+        self._process: subprocess.Popen[bytes] | None = None
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+        with self._process_lock:
+            process = self._process
+            if process is not None and process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
 
     @property
     def process_isolation_enforced(self) -> bool:
         return True
 
     def execute(self, argv: Sequence[str]) -> CommandArtifact:
+        if self._cancelled.is_set():
+            raise SandboxPolicyError("Sandbox task has been cancelled")
         command = self._validated_command(argv)
         sandbox_argv = self._sandbox_argv(command)
         started = monotonic()
@@ -85,23 +103,58 @@ class BubblewrapExecutor:
             close_fds=True,
             preexec_fn=self._limit_resources,
         )
+        with self._process_lock:
+            self._process = process
+        if self._cancelled.is_set():
+            self.cancel()
+        buffers = [bytearray(), bytearray()]
+        output_lock = threading.Lock()
+        output_size = 0
+
+        def drain(pipe: BinaryIO, index: int) -> None:
+            nonlocal output_size
+            try:
+                while chunk := pipe.read(65536):
+                    with output_lock:
+                        remaining = max(0, self._max_output_bytes - output_size)
+                        output_size += len(chunk)
+                        buffers[index].extend(chunk[:remaining])
+            finally:
+                pipe.close()
+
+        assert process.stdout is not None and process.stderr is not None
+        readers = [
+            threading.Thread(target=drain, args=(process.stdout, 0), daemon=True),
+            threading.Thread(target=drain, args=(process.stderr, 1), daemon=True),
+        ]
+        for reader in readers:
+            reader.start()
         timed_out = False
         try:
-            stdout, stderr = process.communicate(timeout=self._timeout_seconds)
+            process.wait(timeout=self._timeout_seconds)
         except subprocess.TimeoutExpired:
             timed_out = True
-            os.killpg(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate()
-        combined_size = len(stdout) + len(stderr)
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        finally:
+            if process.poll() is None:
+                self.cancel()
+            for reader in readers:
+                reader.join()
+            with self._process_lock:
+                self._process = None
         return CommandArtifact(
             id=f"command-{uuid4().hex}",
             argv=tuple(command),
             exit_code=124 if timed_out else process.returncode,
-            stdout=self._decode_bounded(stdout),
-            stderr=self._decode_bounded(stderr),
+            stdout=self._decode_bounded(bytes(buffers[0])),
+            stderr=self._decode_bounded(bytes(buffers[1])),
             duration_seconds=monotonic() - started,
             timed_out=timed_out,
-            output_truncated=combined_size > self._max_output_bytes,
+            output_truncated=output_size > self._max_output_bytes,
         )
 
     def _validated_command(self, argv: Sequence[str]) -> list[str]:

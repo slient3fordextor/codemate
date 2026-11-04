@@ -22,7 +22,7 @@ test:
 	$(PYTHON) -m pytest
 
 test-safety:
-	CODEMATE_REQUIRE_SANDBOX_TESTS=1 $(PYTHON) -m pytest -q tests/test_agent_safety.py tests/test_cli_safety.py tests/test_sandbox_execution.py tests/test_computer_websocket.py tests/test_process_locking.py tests/test_worktree_delivery_boundaries.py tests/test_desktop_process_locking.py
+	CODEMATE_REQUIRE_SANDBOX_TESTS=1 $(PYTHON) -m pytest -q tests/test_agent_safety.py tests/test_cli_safety.py tests/test_sandbox_execution.py tests/test_computer_websocket.py tests/test_process_locking.py tests/test_worktree_delivery_boundaries.py tests/test_desktop_process_locking.py tests/test_phase_b.py tests/test_phase_c.py
 
 test-frontend:
 	node --test tests/frontend/*.test.cjs

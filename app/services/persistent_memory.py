@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -819,7 +820,19 @@ class SQLiteSessionMemoryStore:
                 return
             self._database_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             with self._connect() as connection:
-                connection.execute("PRAGMA journal_mode = WAL")
+                # Switching journal modes can fail immediately despite busy_timeout.
+                deadline = time.monotonic() + 5
+                while True:
+                    try:
+                        connection.execute("PRAGMA journal_mode = WAL")
+                        break
+                    except sqlite3.OperationalError as exc:
+                        if (
+                            exc.sqlite_errorcode not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+                            or time.monotonic() >= deadline
+                        ):
+                            raise
+                        time.sleep(0.05)
                 connection.execute("BEGIN IMMEDIATE")
                 try:
                     version = int(connection.execute("PRAGMA user_version").fetchone()[0])

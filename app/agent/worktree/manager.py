@@ -81,6 +81,11 @@ class GitAdapter:
     def is_dirty(self, path: Path) -> bool:
         return bool(self._git(path, "status", "--porcelain").strip())
 
+    def ignored_paths(self, path: Path) -> tuple[Path, ...]:
+        return self._safe_paths(
+            self._git_bytes(path, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+        )
+
     def apply_diff(self, path: Path, diff: bytes) -> None:
         if not diff:
             return
